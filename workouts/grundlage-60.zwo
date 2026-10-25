@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workout_file>
+  <author>Claude</author>
+  <name>Grundlage 60 min</name>
+  <description>Eine Stunde gleichmäßig in Zone 2 (68 % FTP). Trainiert die Ausdauer und den Fettstoffwechsel. Gut mit Musik oder einer Serie.</description>
+  <sportType>bike</sportType>
+  <workout>
+    <Warmup Duration="600" PowerLow="0.50" PowerHigh="0.68"/>
+    <SteadyState Duration="2700" Power="0.68"/>
+    <Cooldown Duration="300" PowerLow="0.60" PowerHigh="0.45"/>
+  </workout>
+</workout_file>

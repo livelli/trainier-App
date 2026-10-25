@@ -4,17 +4,17 @@ Eigene Trainings-Web-App für den Van Rysel D100 (Bluetooth FTMS), einen Bluetoo
 
 ## Stand
 
-**Phase 2: ERG-Steuerung.** Die Seite verbindet Trainer, Brustgurt und Kadenzsensor, zeigt Watt, Herzfrequenz und Kadenz an und stellt den Trainer im ERG-Modus auf eine feste Wattzahl (mit Pause, ±10 W, −10 % und Tastatursteuerung). Workouts, Aufzeichnung, Zonen, Export und Verlauf folgen in den nächsten Phasen.
+**Phase 4: Workouts.** Die App verbindet Trainer, Brustgurt und Kadenzsensor, spielt Workouts im Cockpit-Design ab und stellt den Trainer dabei automatisch im ERG-Modus auf das jeweilige Ziel. Freie Fahrt mit fester Wattzahl geht auch. Fahrten werden noch nicht gespeichert; Aufzeichnung, Export und Verlauf folgen.
 
-## Test am Trainer
+## Workouts
 
-1. MyWhoosh, Zwift und OnelapFit auf allen Geräten schließen, am Handy Bluetooth kurz ausschalten.
-2. Die App-Seite in Chrome am Laptop öffnen.
-3. Nacheinander „Trainer verbinden“, „Brustgurt verbinden“ und „Kadenzsensor verbinden“ klicken und jeweils das Gerät im Auswahlfenster wählen.
-4. Zwei bis drei Minuten locker treten.
-5. „Protokoll speichern“ klicken und die Datei an Claude schicken.
+Workouts liegen als Zwift-Dateien (`.zwo`) im Ordner `workouts/` und stehen in `workouts/index.json`. Alle Werte sind Anteile der FTP (z. B. `Power="0.90"` = 90 % FTP), die FTP stellt man in der App ein. Unterstützt werden `Warmup`, `Cooldown`, `SteadyState`, `Ramp`, `IntervalsT` und `FreeRide`. Eigene `.zwo`-Dateien lassen sich in der App auch direkt öffnen.
 
-Taucht ein Gerät im Auswahlfenster nicht auf, den Haken bei „Alle Bluetooth-Geräte in der Auswahl zeigen“ setzen und erneut versuchen.
+## Fahren
+
+1. MyWhoosh, Zwift und OnelapFit auf allen Geräten schließen.
+2. Die App in Chrome am Laptop öffnen, Trainer und Brustgurt (und Kadenzsensor) verbinden.
+3. Workout wählen, „Start“ drücken. Tastatur: Leertaste = Start/Pause/Weiter, Pfeil hoch/runter = ±10 W, Bild runter = −10 %, Esc zweimal = beenden.
 
 ## Entwicklung
 

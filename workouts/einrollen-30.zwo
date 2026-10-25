@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workout_file>
+  <author>Claude</author>
+  <name>Locker einrollen (30 min)</name>
+  <description>Ruhige Grundlagenfahrt in Zone 2. Ideal für den ersten Tag mit der App oder als Erholung nach einem harten Training.</description>
+  <sportType>bike</sportType>
+  <workout>
+    <Warmup Duration="300" PowerLow="0.45" PowerHigh="0.65"/>
+    <SteadyState Duration="1200" Power="0.65"/>
+    <Cooldown Duration="300" PowerLow="0.60" PowerHigh="0.45"/>
+  </workout>
+</workout_file>

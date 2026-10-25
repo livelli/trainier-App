@@ -1,6 +1,9 @@
 import { BleDevice, tryRead, readDeviceInfo } from './ble.js';
 import { FtmsControl } from './ftms.js';
 import { ErgController } from './erg.js';
+import { parseZwo, totalDuration, formatTime } from './workout.js';
+import { WorkoutPlayer } from './player.js';
+import { powerZone } from './zones.js';
 import {
   parseIndoorBikeData, parseMachineFeature, parsePowerRange,
   parseHeartRate, parseCscMeasurement, CadenceCalculator, toHex,
@@ -96,7 +99,11 @@ setInterval(() => {
   show('hr', '#m-hr');
   show('cad', '#m-cad');
   show('speed', '#m-speed', (v) => `${v.toFixed(1)} km/h`);
-  show('trainerCad', '#m-trainer-cad', (v) => `${Math.round(v)} U/min`);
+  if (ride) {
+    show('power', '#r-power');
+    show('hr', '#r-hr');
+    show('cad', '#r-cad');
+  }
 }, 250);
 
 const STATUS_TEXT = {
@@ -138,43 +145,459 @@ const control = new FtmsControl({ log });
 let ergSupported = false;
 const erg = new ErgController({ control, log, onChange: renderErg });
 
-function renderErg() {
-  const usable = control.ready && ergSupported;
-  $('#erg-target').textContent = erg.target;
-  $('#erg-toggle').textContent = erg.on ? 'ERG stoppen' : 'ERG starten';
-  $('#erg-pause').textContent = erg.paused ? 'Weiter' : 'Pause';
-  $('#erg-toggle').disabled = !usable && !erg.on;
-  for (const id of ['#erg-pause']) $(id).disabled = !usable || !erg.on;
-  for (const id of ['#erg-minus', '#erg-plus', '#erg-pct', '#erg-input', '#erg-form button']) $(id).disabled = !usable;
+// ---------- FTP ----------
 
-  const box = $('#erg');
-  box.classList.toggle('active', erg.on && !erg.paused);
-  box.classList.toggle('paused', erg.on && erg.paused);
+const FTP_KEY = 'trainerApp.ftp';
+const DEFAULT_FTP = 194;
 
-  const status = $('#erg-status');
-  status.classList.toggle('error', Boolean(erg.error));
-  if (erg.error) status.textContent = `Problem: ${erg.error}`;
-  else if (!control.ready) status.textContent = erg.on ? 'Trainer getrennt. ERG geht weiter, sobald er wieder verbunden ist.' : 'Erst den Trainer verbinden.';
-  else if (!ergSupported) status.textContent = 'Dieser Trainer meldet keinen ERG-Modus.';
-  else if (!erg.on) status.textContent = `Bereit. Zielwert wählen und „ERG starten“ klicken (${erg.min} bis ${erg.max} W).`;
-  else if (erg.paused) status.textContent = 'Pause. Der Trainer hält gerade keine Leistung.';
-  else if (erg.sentTarget !== erg.target) status.textContent = 'Sende Zielwert an den Trainer …';
-  else status.textContent = `ERG aktiv: Der Trainer hält ${erg.target} W.`;
+function loadFtp() {
+  try {
+    const v = Number(localStorage.getItem(FTP_KEY));
+    if (v >= 50 && v <= 600) return v;
+  } catch {
+    // Kein Speicher verfügbar (z. B. privates Fenster): Standardwert nehmen.
+  }
+  return DEFAULT_FTP;
+}
+
+let ftp = loadFtp();
+$('#ftp-input').value = ftp;
+$('#ftp-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = Math.round(Number($('#ftp-input').value));
+  if (!(v >= 50 && v <= 600)) {
+    $('#ftp-status').textContent = 'Bitte eine Zahl zwischen 50 und 600 eingeben.';
+    return;
+  }
+  ftp = v;
+  try {
+    localStorage.setItem(FTP_KEY, String(v));
+    $('#ftp-status').textContent = `Gespeichert: ${v} W`;
+  } catch {
+    $('#ftp-status').textContent = `Übernommen: ${v} W (dieser Browser kann es sich nicht merken)`;
+  }
+  renderWorkoutList();
+});
+
+// ---------- Workout-Liste ----------
+
+let workouts = [];
+
+async function loadWorkouts() {
+  try {
+    const res = await fetch('workouts/index.json', { cache: 'no-cache' });
+    const files = await res.json();
+    const loaded = await Promise.all(files.map(async (file) => {
+      try {
+        const xml = await (await fetch(`workouts/${file}`, { cache: 'no-cache' })).text();
+        return parseZwo(xml);
+      } catch (err) {
+        log('Workouts', `${file} konnte nicht gelesen werden: ${err.message}`);
+        return null;
+      }
+    }));
+    workouts = loaded.filter(Boolean);
+  } catch (err) {
+    log('Workouts', `Liste konnte nicht geladen werden: ${err.message}`);
+  }
+  renderWorkoutList();
+}
+
+function zoneColor(pct) {
+  return powerZone(pct * ftp, ftp).color;
+}
+
+function miniProfile(workout) {
+  const box = document.createElement('div');
+  box.className = 'mini-profile';
+  box.setAttribute('aria-hidden', 'true');
+  const maxPct = Math.max(1.2, ...workout.segments.map((s) => Math.max(s.startPct, s.endPct)));
+  for (const s of workout.segments) {
+    const bar = document.createElement('span');
+    const pct = s.free ? 0.5 : (s.startPct + s.endPct) / 2;
+    bar.style.flexGrow = String(s.durationS);
+    bar.style.height = `${Math.max(4, (pct / maxPct) * 100)}%`;
+    bar.style.background = s.free ? '#4b5563' : zoneColor(pct);
+    box.append(bar);
+  }
+  return box;
+}
+
+function renderWorkoutList() {
+  const list = $('#workout-list');
+  list.textContent = '';
+  if (!workouts.length) {
+    const p = document.createElement('p');
+    p.className = 'sub';
+    p.textContent = 'Keine Workouts gefunden.';
+    list.append(p);
+    return;
+  }
+  for (const w of workouts) {
+    const card = document.createElement('div');
+    card.className = 'workout-card';
+    const h = document.createElement('h3');
+    h.textContent = w.name;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const peaks = w.segments.filter((s) => !s.free).map((s) => Math.max(s.startPct, s.endPct));
+    meta.textContent = peaks.length
+      ? `${formatTime(totalDuration(w))} · bis ${Math.round(Math.max(...peaks) * ftp)} W`
+      : `${formatTime(totalDuration(w))} · freie Fahrt`;
+    const desc = document.createElement('div');
+    desc.className = 'desc';
+    desc.textContent = w.description;
+    const btn = document.createElement('button');
+    btn.textContent = 'Dieses Workout fahren';
+    btn.addEventListener('click', () => openRide(w));
+    card.append(h, meta, miniProfile(w), desc, btn);
+    list.append(card);
+  }
+}
+
+$('#zwo-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const w = parseZwo(await file.text());
+    workouts.unshift(w);
+    renderWorkoutList();
+    log('Workouts', `Datei geladen: ${file.name}`);
+  } catch (err) {
+    alert(`Die Datei konnte nicht gelesen werden: ${err.message}`);
+  }
+});
+
+$('#free-ride').addEventListener('click', () => openRide(null));
+
+// ---------- Fahranzeige ----------
+
+let ride = null; // { workout, player, freeStartedAt, freeElapsedMs, endArmedUntil }
+let profileBars = [];
+
+function openRide(workout) {
+  ride = {
+    workout,
+    player: workout ? new WorkoutPlayer(workout, { ftp }) : null,
+    freeStartedAt: null,
+    freeElapsedMs: 0,
+    endArmedUntil: 0,
+  };
+  if (!workout) erg.setTarget(Math.round(ftp * 0.55));
+  $('#setup-screen').hidden = true;
+  $('#ride-screen').hidden = false;
+  $('#r-name').textContent = workout ? workout.name : 'Freie Fahrt';
+  $('#r-profile-box').hidden = !workout;
+  $('#r-skip').hidden = !workout;
+  buildProfile();
+  renderRide();
+  window.scrollTo(0, 0);
+}
+
+async function closeRide() {
+  // Erst die Fahrt abmelden, dann ERG ausschalten: sonst schaltet der Takt ERG
+  // wieder ein, während der Trainer den Stopp noch bestätigt.
+  const r = ride;
+  ride = null;
+  if (r && r.player && r.player.state !== 'fertig') r.player.stop(Date.now());
+  if (erg.on) await erg.disable();
+  $('#ride-screen').hidden = true;
+  $('#setup-screen').hidden = false;
+  $('#ride-screen').classList.remove('done');
   updateWakeLock();
 }
 
-// Bildschirm wach halten, solange ERG läuft (sonst schläft der Laptop mitten im Intervall ein).
+function buildProfile() {
+  const box = $('#r-profile');
+  box.querySelectorAll('.bar').forEach((b) => b.remove());
+  profileBars = [];
+  if (!ride || !ride.workout) return;
+  const segs = ride.workout.segments;
+  const maxPct = Math.max(1.2, ...segs.map((s) => Math.max(s.startPct, s.endPct)));
+  let t = 0;
+  for (const s of segs) {
+    // Rampen in Scheiben zu je höchstens 30 s zeichnen, damit sie als Schräge erkennbar sind.
+    const slices = s.startPct === s.endPct ? 1 : Math.max(2, Math.ceil(s.durationS / 30));
+    for (let i = 0; i < slices; i++) {
+      const d = s.durationS / slices;
+      const pct = s.free ? 0.5 : s.startPct + (s.endPct - s.startPct) * ((i + 0.5) / slices);
+      const bar = document.createElement('div');
+      bar.className = 'bar todo';
+      bar.style.flexGrow = String(d);
+      bar.style.height = `${Math.max(3, (pct / maxPct) * 100)}%`;
+      bar.style.background = s.free ? '#4b5563' : zoneColor(pct);
+      box.append(bar);
+      t += d;
+      profileBars.push({ el: bar, endS: t });
+    }
+  }
+}
+
+function freeElapsedS(now) {
+  const running = ride.freeStartedAt !== null ? now - ride.freeStartedAt : 0;
+  return (ride.freeElapsedMs + running) / 1000;
+}
+
+function currentTargetW(now = Date.now()) {
+  if (!ride) return erg.on && !erg.paused ? erg.target : null;
+  if (ride.player) {
+    const st = ride.player.status(now);
+    return st.state === 'läuft' ? st.targetW : null;
+  }
+  return erg.on && !erg.paused ? erg.target : null;
+}
+
+function rideRunning() {
+  if (!ride) return false;
+  if (ride.player) return ride.player.state === 'läuft';
+  return ride.freeStartedAt !== null;
+}
+
+// Wird alle 250 ms aufgerufen: Workout weiterschalten und dem Trainer das Ziel geben.
+function tickRide() {
+  if (!ride) return;
+  if (!ride.player) {
+    // Freie Fahrt: ERG nachträglich einschalten, wenn der Trainer erst nach dem Start (wieder) bereit ist.
+    if (ride.freeStartedAt !== null && !erg.on && control.ready && ergSupported) erg.enable();
+    return;
+  }
+  const now = Date.now();
+  const st = ride.player.status(now);
+  if (st.state === 'fertig') {
+    if (!ride.finished) finishRide();
+    return;
+  }
+  if (st.state !== 'läuft') return;
+  if (st.targetW === null) {
+    if (erg.on) erg.disable();
+    return;
+  }
+  if (control.ready && ergSupported) {
+    if (erg.target !== erg.clamp(st.targetW)) erg.setTarget(st.targetW);
+    if (!erg.on) erg.enable();
+  }
+}
+
+function finishRide() {
+  ride.finished = true;
+  ride.player.stop(Date.now());
+  if (erg.on) erg.disable();
+  log('Workout', `Beendet: ${ride.workout.name}`);
+  renderRide();
+  updateWakeLock();
+}
+
+setInterval(() => {
+  tickRide();
+  if (ride) renderRide();
+}, 250);
+
+function setAlert(text, kind = '') {
+  const el = $('#r-alert');
+  el.hidden = !text;
+  el.textContent = text || '';
+  el.className = `ride-alert ${kind}`;
+}
+
+function renderRide() {
+  if (!ride) return;
+  const now = Date.now();
+  const screen = $('#ride-screen');
+
+  for (const [key, id] of [['trainer', '#dd-trainer'], ['hr', '#dd-hr'], ['cad', '#dd-cad']]) {
+    const dev = devices[key];
+    $(id).classList.toggle('on', dev.connected);
+    $(id).classList.toggle('warn', !dev.connected && dev.retrying);
+  }
+
+  let target = null;
+  let segLabel;
+  let countdown;
+  let segProgress = 0;
+  let nextText;
+  let state;
+
+  if (ride.player) {
+    const st = ride.player.status(now);
+    state = st.state;
+    target = st.targetW === null ? null : erg.clamp(st.targetW);
+    $('#r-time').textContent = `${formatTime(st.elapsedS)} von ${formatTime(st.totalS)} · FTP ${ftp} W`;
+    const s = st.segment;
+    if (s.free) segLabel = `${s.label} · ohne Ziel`;
+    else if (s.startPct !== s.endPct) {
+      segLabel = `${s.label} · ${erg.clamp(ride.player.targetW(s, 0))} → ${erg.clamp(ride.player.targetW(s, s.durationS))} W`;
+    } else segLabel = `${s.label} · ${target} W`;
+    countdown = formatTime(st.segRemainingS);
+    segProgress = s.durationS ? st.segElapsedS / s.durationS : 0;
+    nextText = st.next
+      ? `Danach: ${st.next.label}${st.next.free ? '' : ` · ${erg.clamp(st.nextTargetW)} W`} · ${formatTime(st.next.durationS)}`
+      : 'Danach: geschafft!';
+    $('#r-marker').style.left = `calc(${(st.progress * 100).toFixed(2)}% - 1px)`;
+    for (const b of profileBars) {
+      const done = b.endS <= st.elapsedS;
+      b.el.classList.toggle('done', done);
+      b.el.classList.toggle('todo', !done);
+    }
+    const p = ride.player;
+    const parts = [];
+    if (Math.abs(p.factor - 1) > 0.001) parts.push(`${Math.round((p.factor - 1) * 100)} %`);
+    if (p.offsetW) parts.push(`${p.offsetW > 0 ? '+' : ''}${p.offsetW} W`);
+    $('#r-adjust').textContent = parts.length ? `Anpassung: ${parts.join(' · ')}` : '';
+  } else {
+    state = ride.freeStartedAt !== null ? (erg.paused ? 'pause' : 'läuft') : (ride.freeElapsedMs ? 'pause' : 'bereit');
+    target = erg.target;
+    const el = freeElapsedS(now);
+    $('#r-time').textContent = `${formatTime(el)} gefahren · FTP ${ftp} W`;
+    segLabel = `Freie Fahrt · Ziel ${erg.target} W`;
+    countdown = formatTime(el);
+    nextText = 'Ziel mit den Knöpfen oder den Pfeiltasten ändern.';
+    $('#r-adjust').textContent = '';
+  }
+
+  if (target !== null) {
+    const z = powerZone(target, ftp);
+    screen.style.setProperty('--zone', z.color);
+    $('#r-target').innerHTML = `Ziel ${target} W · <span class="zone-name">Z${z.zone} ${z.name}</span>`;
+  } else {
+    screen.style.setProperty('--zone', '#3a434f');
+    $('#r-target').textContent = ride.player && state !== 'bereit' && state !== 'fertig' ? 'Kein Ziel (freie Fahrt)' : 'Ziel –';
+  }
+  $('#r-seg-label').textContent = segLabel;
+  $('#r-countdown').textContent = countdown;
+  $('#r-seg-progress').style.width = `${Math.min(100, segProgress * 100).toFixed(1)}%`;
+  $('#r-next').textContent = nextText;
+
+  const startBtn = $('#r-start');
+  startBtn.disabled = state === 'fertig';
+  startBtn.textContent = { bereit: 'Start', läuft: 'Pause', pause: 'Weiter', fertig: 'Geschafft' }[state];
+  const endBtn = $('#r-end');
+  if (state === 'fertig' || state === 'bereit') endBtn.textContent = 'Zurück';
+  else endBtn.textContent = now < ride.endArmedUntil ? 'Wirklich beenden?' : (ride.player ? 'Workout beenden' : 'Fahrt beenden');
+
+  if (state === 'fertig') setAlert(`Workout geschafft! ${formatTime(ride.player.totalS)} gefahren. Speichern kommt in der nächsten Version.`, 'info');
+  else if (erg.error) setAlert(`Problem: ${erg.error}`);
+  else if (state === 'läuft' && target !== null && !control.ready) setAlert('Trainer nicht verbunden: Das Watt-Ziel wird gerade nicht an den Trainer geschickt.');
+  else if (state === 'läuft' && target !== null && control.ready && !ergSupported) setAlert('Dieser Trainer meldet keinen ERG-Modus.');
+  else setAlert('');
+}
+
+// ---------- Bedienung ----------
+
+async function startOrPause() {
+  if (!ride) return;
+  const now = Date.now();
+  if (ride.player) {
+    const p = ride.player;
+    if (p.state === 'bereit') {
+      p.start(now);
+      log('Workout', `Start: ${ride.workout.name}, FTP ${ftp} W`);
+      tickRide();
+    } else if (p.state === 'läuft') {
+      p.pause(now);
+      if (erg.on && !erg.paused) await erg.togglePause();
+    } else if (p.state === 'pause') {
+      p.resume(now);
+      // Erst das aktuelle Ziel übernehmen (oder ERG bei freier Fahrt ausschalten), dann weiterfahren,
+      // damit nach „Überspringen“ in der Pause nicht kurz das alte Ziel anliegt.
+      tickRide();
+      if (erg.on && erg.paused) await erg.togglePause();
+    }
+  } else if (ride.freeStartedAt === null) {
+    ride.freeStartedAt = now;
+    if (erg.on && erg.paused) await erg.togglePause();
+    else if (!erg.on && control.ready && ergSupported) await erg.enable();
+  } else {
+    ride.freeElapsedMs += now - ride.freeStartedAt;
+    ride.freeStartedAt = null;
+    if (erg.on && !erg.paused) await erg.togglePause();
+  }
+  renderRide();
+  updateWakeLock();
+}
+
+function adjust(deltaW) {
+  if (!ride) return;
+  if (ride.player) {
+    ride.player.adjustOffset(deltaW);
+    tickRide();
+  } else erg.adjust(deltaW);
+  renderRide();
+}
+
+function scaleDown() {
+  if (!ride) return;
+  if (ride.player) {
+    ride.player.scale(0.9);
+    tickRide();
+  } else erg.scale(0.9);
+  renderRide();
+}
+
+function endRide() {
+  if (!ride) return;
+  const state = ride.player ? ride.player.state : (ride.freeStartedAt !== null || ride.freeElapsedMs ? 'läuft' : 'bereit');
+  // Während der Fahrt zweimal klicken, damit ein versehentlicher Klick nichts abbricht.
+  if ((state === 'läuft' || state === 'pause') && Date.now() > ride.endArmedUntil) {
+    ride.endArmedUntil = Date.now() + 3000;
+    renderRide();
+    return;
+  }
+  if (ride.player && ride.player.state !== 'fertig') log('Workout', 'Vorzeitig beendet');
+  closeRide();
+}
+
+$('#r-start').addEventListener('click', startOrPause);
+$('#r-minus').addEventListener('click', () => adjust(-10));
+$('#r-plus').addEventListener('click', () => adjust(10));
+$('#r-pct').addEventListener('click', scaleDown);
+$('#r-skip').addEventListener('click', () => {
+  if (ride && ride.player && ride.player.state !== 'bereit' && ride.player.state !== 'fertig') {
+    ride.player.skip(Date.now());
+    tickRide();
+    renderRide();
+  }
+});
+$('#r-end').addEventListener('click', endRide);
+
+document.addEventListener('keydown', (e) => {
+  if (!ride || e.target.tagName === 'INPUT') return;
+  const actions = {
+    ' ': startOrPause,
+    ArrowUp: () => adjust(10),
+    ArrowDown: () => adjust(-10),
+    PageDown: scaleDown,
+    Escape: endRide,
+  };
+  const action = actions[e.key];
+  if (!action) return;
+  e.preventDefault();
+  // Gedrückt gehaltene Tasten sollen nicht dauernd umschalten; Pfeile dürfen wiederholen.
+  if (e.repeat && !e.key.startsWith('Arrow')) return;
+  action();
+});
+
+function renderErg() {
+  if (ride) renderRide();
+  updateWakeLock();
+}
+
+// Bildschirm wach halten, solange gefahren wird (sonst schläft der Laptop mitten im Intervall ein).
 let wakeLock = null;
 let wakeLockBusy = false;
+function wantWakeLock() {
+  return erg.on || rideRunning();
+}
 async function updateWakeLock() {
   if (wakeLockBusy) return;
   wakeLockBusy = true;
+  const want = wantWakeLock();
   try {
-    if (erg.on && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+    if (want && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
       const lock = await navigator.wakeLock.request('screen');
       lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
       wakeLock = lock;
-    } else if (!erg.on && wakeLock) {
+    } else if (!want && wakeLock) {
       const lock = wakeLock;
       wakeLock = null;
       await lock.release();
@@ -187,45 +610,13 @@ async function updateWakeLock() {
     wakeLockBusy = false;
   }
   // Zustand kann sich während des Wartens geändert haben.
-  if (Boolean(wakeLock) !== erg.on && document.visibilityState === 'visible' && 'wakeLock' in navigator) {
+  if (Boolean(wakeLock) !== wantWakeLock() && document.visibilityState === 'visible' && 'wakeLock' in navigator) {
     setTimeout(updateWakeLock, 0);
   }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateWakeLock(); });
 
-$('#erg-toggle').addEventListener('click', () => (erg.on ? erg.disable() : erg.enable()));
-$('#erg-pause').addEventListener('click', () => erg.togglePause());
-$('#erg-minus').addEventListener('click', () => erg.adjust(-10));
-$('#erg-plus').addEventListener('click', () => erg.adjust(10));
-$('#erg-pct').addEventListener('click', () => erg.scale(0.9));
-$('#erg-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const v = Number($('#erg-input').value);
-  if (v > 0) erg.setTarget(v);
-  $('#erg-input').value = '';
-  $('#erg-input').blur();
-});
-
-document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || !control.ready || !ergSupported) return;
-  const actions = {
-    ArrowUp: () => erg.adjust(10),
-    ArrowDown: () => erg.adjust(-10),
-    PageDown: () => erg.scale(0.9),
-    ' ': () => (erg.on ? erg.togglePause() : erg.enable()),
-    Escape: () => erg.on && erg.disable(),
-  };
-  const action = actions[e.key];
-  // Gedrückt gehaltene Leertaste soll nicht dauernd Pause/Weiter umschalten; Pfeile dürfen wiederholen.
-  if (action && e.repeat && !e.key.startsWith('Arrow')) {
-    e.preventDefault();
-    return;
-  }
-  if (action) {
-    e.preventDefault();
-    action();
-  }
-});
+loadWorkouts();
 
 // ---------- Geräte ----------
 
@@ -291,6 +682,9 @@ const devices = {
         if (d.power !== undefined) setMetric('power', d.power);
         if (d.speedKmh !== undefined) setMetric('speed', d.speedKmh);
         if (d.cadence !== undefined) setMetric('trainerCad', d.cadence);
+        // Bluetooth-Pakete kommen auch in verdeckten Tabs zuverlässig, Timer werden dort gedrosselt:
+        // so wechselt das Ziel trotzdem pünktlich.
+        tickRide();
       });
 
       // Statusmeldungen des Trainers nur protokollieren (zeigt, was er mit unseren Befehlen macht).
@@ -410,11 +804,13 @@ $('#sim-toggle').addEventListener('click', () => {
   let t = 0;
   simTimer = setInterval(() => {
     t += 1;
-    setMetric('power', 150 + Math.round(20 * Math.sin(t / 5)) + Math.round(Math.random() * 10));
+    // Folgt dem aktuellen Ziel, damit sich Workouts auch ohne Trainer ausprobieren lassen.
+    const target = currentTargetW();
+    const base = target ?? 150 + Math.round(20 * Math.sin(t / 5));
+    setMetric('power', base + Math.round(Math.random() * 6) - 3);
     setMetric('hr', 120 + Math.round(10 * Math.sin(t / 30)));
     setMetric('cad', 85 + Math.round(Math.random() * 6));
     setMetric('speed', 30 + Math.random());
-    setMetric('trainerCad', 30);
   }, 1000);
 });
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workout_file>
+  <author>Claude</author>
+  <name>VO2max 5 × 3 min (50 min)</name>
+  <description>Fünf harte Intervalle zu 3 Minuten bei 110 % FTP mit je 3 Minuten Erholung. Nur ausgeruht fahren. Wird es zu hart, hilft der Knopf „−10 %“.</description>
+  <sportType>bike</sportType>
+  <workout>
+    <Warmup Duration="600" PowerLow="0.50" PowerHigh="0.75"/>
+    <SteadyState Duration="120" Power="0.85"/>
+    <SteadyState Duration="180" Power="0.50"/>
+    <IntervalsT Repeat="5" OnDuration="180" OffDuration="180" OnPower="1.10" OffPower="0.50"/>
+    <Cooldown Duration="300" PowerLow="0.60" PowerHigh="0.45"/>
+  </workout>
+</workout_file>

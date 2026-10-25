@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workout_file>
+  <author>Claude</author>
+  <name>ERG-Stufentest (15 min)</name>
+  <description>Kurzer Test für die App: fünf Stufen zu je 2 Minuten von 50 % bis 90 % der FTP, dann locker ausfahren. Gut, um zu prüfen, ob der Trainer die Ziele sauber übernimmt.</description>
+  <sportType>bike</sportType>
+  <workout>
+    <SteadyState Duration="120" Power="0.50"/>
+    <SteadyState Duration="120" Power="0.60"/>
+    <SteadyState Duration="120" Power="0.70"/>
+    <SteadyState Duration="120" Power="0.80"/>
+    <SteadyState Duration="120" Power="0.90"/>
+    <Cooldown Duration="300" PowerLow="0.60" PowerHigh="0.45"/>
+  </workout>
+</workout_file>
