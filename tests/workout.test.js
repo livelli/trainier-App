@@ -26,7 +26,7 @@ test('ZWO einlesen', () => {
   assert.equal(w.name, 'Sweet Spot 3 & 8');
   // Warmup + 3×(on+off) + Steady + Free + Cooldown
   assert.equal(w.segments.length, 1 + 6 + 1 + 1 + 1);
-  assert.deepEqual(w.segments[0], { durationS: 600, startPct: 0.5, endPct: 0.75, free: false, label: 'Einfahren' });
+  assert.deepEqual(w.segments[0], { durationS: 600, startPct: 0.5, endPct: 0.75, free: false, label: 'Einfahren', cadence: null });
   assert.equal(w.segments[1].label, 'Intervall 1 von 3');
   assert.equal(w.segments[1].startPct, 0.9);
   assert.equal(w.segments[2].label, 'Erholung');
@@ -107,4 +107,26 @@ test('ZWO: Kommentare, Attribute am workout-Tag, Intervall-Rampen', () => {
   assert.equal(w.segments[0].startPct, 0.8);
   assert.equal(w.segments[0].endPct, 1.0);
   assert.equal(w.segments[1].startPct, 0.5);
+});
+
+test('Kadenz aus der Datei und als Empfehlung', async () => {
+  const { parseZwo, cadenceTarget, formatCadence } = await import('../js/workout.js');
+  const w = parseZwo(`<workout_file><workout>
+    <Warmup Duration="300" PowerLow="0.5" PowerHigh="0.7"/>
+    <SteadyState Duration="600" Power="0.9" Cadence="70"/>
+    <SteadyState Duration="60" Power="1.1" CadenceLow="95" CadenceHigh="105"/>
+    <IntervalsT Repeat="2" OnDuration="60" OffDuration="60" OnPower="1.2" OffPower="0.5" Cadence="100" CadenceResting="85"/>
+    <FreeRide Duration="60"/>
+  </workout></workout_file>`);
+  const c = w.segments.map(cadenceTarget);
+  assert.deepEqual(c[0], { low: 85, high: 95 });
+  assert.deepEqual(c[1], { low: 70, high: 70 });
+  assert.deepEqual(c[2], { low: 95, high: 105 });
+  assert.deepEqual(c[3], { low: 100, high: 100 });
+  assert.deepEqual(c[4], { low: 85, high: 85 });
+  assert.equal(c[7], null);
+  assert.deepEqual(cadenceTarget({ startPct: 1.1, endPct: 1.1, free: false }), { low: 90, high: 100 });
+  assert.equal(formatCadence({ low: 85, high: 95 }), '85–95 U/min');
+  assert.equal(formatCadence({ low: 70, high: 70 }), '70 U/min');
+  assert.equal(parseZwo('<workout><SteadyState Duration="60" Power="0.5" Cadence="999"/></workout>').segments[0].cadence, null);
 });

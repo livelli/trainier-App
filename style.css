@@ -228,6 +228,10 @@ details summary { cursor: pointer; font-weight: 600; }
 }
 .tile-sub { font-size: 20px; color: var(--soft); }
 .zone-name { color: var(--zone); font-weight: 600; }
+.cad-target { font-weight: 600; }
+#t-cad.off { border-top-color: var(--warn); }
+#t-cad.off .cad-target { color: var(--warn); }
+.ride-buttons button.sound-btn { font-size: 16px; padding: 0 16px; }
 
 .interval {
   background: var(--panel);

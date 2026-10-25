@@ -1,7 +1,8 @@
 import { BleDevice, tryRead, readDeviceInfo } from './ble.js';
 import { FtmsControl } from './ftms.js';
 import { ErgController } from './erg.js';
-import { parseZwo, totalDuration, formatTime } from './workout.js';
+import { parseZwo, totalDuration, formatTime, cadenceTarget, formatCadence } from './workout.js';
+import { Sound, soundCue, SOUND_LABELS } from './sound.js';
 import { WorkoutPlayer } from './player.js';
 import { powerZone } from './zones.js';
 import { normalizeEntry, planDate, sortByPlan, defaultBriefing } from './plan.js';
@@ -104,6 +105,12 @@ setInterval(() => {
     show('power', '#r-power');
     show('hr', '#r-hr');
     show('cad', '#r-cad');
+    // Kadenz-Kachel markieren, wenn die Trittfrequenz deutlich außerhalb des Ziels liegt.
+    const c = latest.cad;
+    const goal = ride.cadenceGoal;
+    const off = goal && c.value !== null && now - c.at <= STALE_MS && c.value > 0
+      && (c.value < goal.low - 5 || c.value > goal.high + 5);
+    $('#t-cad').classList.toggle('off', Boolean(off));
   }
 }, 250);
 
@@ -338,6 +345,59 @@ $('#free-ride').addEventListener('click', () => openRide(null));
 let ride = null; // { workout, player, freeStartedAt, freeElapsedMs, endArmedUntil }
 let profileBars = [];
 
+// ---------- Tonsignale ----------
+
+const SOUND_KEY = 'trainerApp.sound';
+let savedSound = null;
+try { savedSound = localStorage.getItem(SOUND_KEY); } catch { /* ohne Speicher gilt die Voreinstellung */ }
+const sound = new Sound(savedSound ?? 'ansage');
+
+function renderSoundButton() {
+  $('#r-sound').textContent = SOUND_LABELS[sound.mode];
+}
+
+$('#r-sound').addEventListener('click', () => {
+  const mode = sound.nextMode();
+  try { localStorage.setItem(SOUND_KEY, mode); } catch { /* egal */ }
+  sound.unlock();
+  if (mode === 'piepsen') sound.countdown();
+  if (mode === 'ansage') sound.say('Ansage an');
+  renderSoundButton();
+});
+renderSoundButton();
+
+// Ansage beim Wechsel, z. B. „Intervall 2 von 5. 213 Watt. Kadenz 90 bis 100.“
+function announce(st) {
+  const s = st.segment;
+  if (!s) return;
+  const parts = [s.label];
+  if (s.free) parts.push('ohne Wattziel');
+  else if (s.startPct !== s.endPct) parts.push(`von ${erg.clamp(ride.player.targetW(s, 0))} auf ${erg.clamp(ride.player.targetW(s, s.durationS))} Watt`);
+  else parts.push(`${erg.clamp(st.targetW)} Watt`);
+  const c = cadenceTarget(s);
+  if (c) parts.push(c.low === c.high ? `Kadenz ${c.low}` : `Kadenz ${c.low} bis ${c.high}`);
+  parts.push(spokenDuration(s.durationS));
+  sound.say(parts.join('. '));
+}
+
+function spokenDuration(totalS) {
+  const m = Math.floor(totalS / 60);
+  const sec = Math.round(totalS % 60);
+  const min = m === 1 ? '1 Minute' : `${m} Minuten`;
+  if (!m) return `${sec} Sekunden`;
+  return sec ? `${min} ${sec}` : min;
+}
+
+function playCues() {
+  if (!ride || !ride.player) return;
+  const st = ride.player.status(Date.now());
+  const { cue, state } = soundCue(ride.cue, st);
+  ride.cue = state;
+  if (cue === 'countdown') sound.countdown();
+  else if (cue === 'wechsel') { sound.change(); announce(st); }
+  else if (cue === 'fertig') { sound.finish(); sound.say('Workout geschafft. Gut gemacht!'); }
+}
+
 function openRide(workout) {
   ride = {
     workout,
@@ -345,6 +405,8 @@ function openRide(workout) {
     freeStartedAt: null,
     freeElapsedMs: 0,
     endArmedUntil: 0,
+    cue: null,
+    cadenceGoal: null,
   };
   if (!workout) erg.setTarget(Math.round(ftp * 0.55));
   $('#setup-screen').hidden = true;
@@ -452,6 +514,7 @@ function finishRide() {
 
 setInterval(() => {
   tickRide();
+  playCues();
   if (ride) renderRide();
 }, 250);
 
@@ -479,6 +542,7 @@ function renderRide() {
   let segProgress = 0;
   let nextText;
   let state;
+  let cadGoal = null;
 
   if (ride.player) {
     const st = ride.player.status(now);
@@ -491,9 +555,11 @@ function renderRide() {
       segLabel = `${s.label} · ${erg.clamp(ride.player.targetW(s, 0))} → ${erg.clamp(ride.player.targetW(s, s.durationS))} W`;
     } else segLabel = `${s.label} · ${target} W`;
     countdown = formatTime(st.segRemainingS);
+    cadGoal = cadenceTarget(s);
+    const nextCad = cadenceTarget(st.next);
     segProgress = s.durationS ? st.segElapsedS / s.durationS : 0;
     nextText = st.next
-      ? `Danach: ${st.next.label}${st.next.free ? '' : ` · ${erg.clamp(st.nextTargetW)} W`} · ${formatTime(st.next.durationS)}`
+      ? `Danach: ${st.next.label}${st.next.free ? '' : ` · ${erg.clamp(st.nextTargetW)} W`}${nextCad ? ` · ${formatCadence(nextCad)}` : ''} · ${formatTime(st.next.durationS)}`
       : 'Danach: geschafft!';
     $('#r-marker').style.left = `calc(${(st.progress * 100).toFixed(2)}% - 1px)`;
     for (const b of profileBars) {
@@ -512,6 +578,8 @@ function renderRide() {
     const el = freeElapsedS(now);
     $('#r-time').textContent = `${formatTime(el)} gefahren · FTP ${ftp} W`;
     segLabel = `Freie Fahrt · Ziel ${erg.target} W`;
+    const pct = erg.target / ftp;
+    cadGoal = cadenceTarget({ startPct: pct, endPct: pct, free: false });
     countdown = formatTime(el);
     nextText = 'Ziel mit den Knöpfen oder den Pfeiltasten ändern.';
     $('#r-adjust').textContent = '';
@@ -525,6 +593,8 @@ function renderRide() {
     screen.style.setProperty('--zone', '#3a434f');
     $('#r-target').textContent = ride.player && state !== 'bereit' && state !== 'fertig' ? 'Kein Ziel (freie Fahrt)' : 'Ziel –';
   }
+  ride.cadenceGoal = cadGoal;
+  $('#r-cad-target').textContent = cadGoal ? `Ziel ${formatCadence(cadGoal)}` : 'U/min · kein Ziel';
   $('#r-seg-label').textContent = segLabel;
   $('#r-countdown').textContent = countdown;
   $('#r-seg-progress').style.width = `${Math.min(100, segProgress * 100).toFixed(1)}%`;
@@ -548,6 +618,7 @@ function renderRide() {
 
 async function startOrPause() {
   if (!ride) return;
+  sound.unlock();
   const now = Date.now();
   if (ride.player) {
     const p = ride.player;
@@ -555,6 +626,7 @@ async function startOrPause() {
       p.start(now);
       log('Workout', `Start: ${ride.workout.name}, FTP ${ftp} W`);
       tickRide();
+      announce(p.status(now));
     } else if (p.state === 'läuft') {
       p.pause(now);
       if (erg.on && !erg.paused) await erg.togglePause();

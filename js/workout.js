@@ -1,5 +1,6 @@
 // Workouts: Einlesen von Zwift-Dateien (.zwo) und Umwandeln in eine flache Liste von Abschnitten.
-// Ein Abschnitt: { durationS, startPct, endPct, free, label } mit Leistung als Anteil der FTP.
+// Ein Abschnitt: { durationS, startPct, endPct, free, label, cadence } mit Leistung als Anteil der FTP.
+// cadence ist { low, high } in U/min, wenn die Datei eine Trittfrequenz vorgibt, sonst null.
 // startPct === endPct ist ein gleichbleibender Abschnitt, sonst eine Rampe.
 
 function attrs(text) {
@@ -37,6 +38,8 @@ export function parseZwo(xml) {
     const type = m[1].toLowerCase();
     const a = attrs(m[2]);
     const d = num(a.duration);
+    const cad = cadenceAttr(a.cadence, a.cadencelow, a.cadencehigh);
+    const before = segments.length;
     if (type === 'warmup') {
       segments.push(ramp(d, num(a.powerlow, 0.5), num(a.powerhigh, 0.75), 'Einfahren'));
     } else if (type === 'cooldown') {
@@ -53,13 +56,16 @@ export function parseZwo(xml) {
       const onHigh = num(a.onpower, num(a.poweronhigh, onLow));
       const offLow = num(a.offpower, num(a.powerofflow, num(a.powerlow)));
       const offHigh = num(a.offpower, num(a.poweroffhigh, offLow));
+      const restCad = cadenceAttr(a.cadenceresting);
       for (let i = 0; i < reps; i++) {
-        segments.push(ramp(num(a.onduration), onLow, onHigh, `Intervall ${i + 1} von ${reps}`));
-        segments.push(ramp(num(a.offduration), offLow, offHigh, 'Erholung'));
+        segments.push({ ...ramp(num(a.onduration), onLow, onHigh, `Intervall ${i + 1} von ${reps}`), cadence: cad });
+        segments.push({ ...ramp(num(a.offduration), offLow, offHigh, 'Erholung'), cadence: restCad });
       }
+      continue;
     } else {
       segments.push({ durationS: d, startPct: 0, endPct: 0, free: true, label: 'Freie Fahrt' });
     }
+    for (let i = before; i < segments.length; i++) segments[i].cadence = cad;
   }
   const valid = segments.filter((s) => s.durationS > 0);
   if (!valid.length) throw new Error('Das Workout enthält keine Abschnitte');
@@ -69,6 +75,27 @@ export function parseZwo(xml) {
     description: tagText(xml, 'description'),
     segments: valid,
   };
+}
+
+// Zwift kennt nur Cadence="90" (und CadenceResting für Erholungen); CadenceLow/CadenceHigh erlauben einen Bereich.
+function cadenceAttr(single, low, high) {
+  const valid = (v) => Number.isFinite(Number(v)) && Number(v) >= 30 && Number(v) <= 160;
+  if (valid(low) && valid(high)) return { low: Math.min(Number(low), Number(high)), high: Math.max(Number(low), Number(high)) };
+  if (valid(single)) return { low: Number(single), high: Number(single) };
+  return null;
+}
+
+// Trittfrequenz für einen Abschnitt: aus der Datei, sonst eine Empfehlung nach Intensität.
+export function cadenceTarget(segment) {
+  if (!segment || segment.free) return null;
+  if (segment.cadence) return segment.cadence;
+  const pct = (segment.startPct + segment.endPct) / 2;
+  return pct > 1.05 ? { low: 90, high: 100 } : { low: 85, high: 95 };
+}
+
+export function formatCadence(c) {
+  if (!c) return '';
+  return c.low === c.high ? `${c.low} U/min` : `${c.low}–${c.high} U/min`;
 }
 
 function ramp(durationS, from, to, label) {
