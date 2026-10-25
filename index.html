@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trainer-App: Verbindungstest</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Verbindungstest</h1>
+    <p class="sub">Phase 1: prüft, ob Chrome deinen Trainer, den Brustgurt und den Kadenzsensor findet. Das Training selbst kommt später.</p>
+  </header>
+
+  <div id="browser-warning" class="warning" hidden></div>
+
+  <section class="howto">
+    <strong>Vorher:</strong> MyWhoosh, Zwift und die OnelapFit-App auf allen Geräten schließen
+    und am Handy Bluetooth kurz ausschalten. Der D100 erlaubt nur eine Verbindung gleichzeitig.
+  </section>
+
+  <section class="devices">
+    <div class="device" id="dev-trainer">
+      <h2>Rollentrainer</h2>
+      <p class="status">nicht verbunden</p>
+      <button data-connect="trainer">Trainer verbinden</button>
+      <button data-disconnect="trainer" class="secondary" hidden>Trennen</button>
+    </div>
+    <div class="device" id="dev-hr">
+      <h2>Brustgurt</h2>
+      <p class="status">nicht verbunden</p>
+      <button data-connect="hr">Brustgurt verbinden</button>
+      <button data-disconnect="hr" class="secondary" hidden>Trennen</button>
+    </div>
+    <div class="device" id="dev-cad">
+      <h2>Kadenzsensor</h2>
+      <p class="status">nicht verbunden</p>
+      <button data-connect="cad">Kadenzsensor verbinden</button>
+      <button data-disconnect="cad" class="secondary" hidden>Trennen</button>
+    </div>
+  </section>
+
+  <label class="option">
+    <input type="checkbox" id="show-all">
+    Alle Bluetooth-Geräte in der Auswahl zeigen (falls ein Gerät nicht auftaucht)
+  </label>
+
+  <section class="metrics">
+    <div class="metric"><span class="label">Watt</span><span class="value" id="m-power">–</span></div>
+    <div class="metric"><span class="label">Herzfrequenz</span><span class="value" id="m-hr">–</span></div>
+    <div class="metric"><span class="label">Kadenz (Sensor)</span><span class="value" id="m-cad">–</span></div>
+  </section>
+
+  <section class="extra">
+    <div><span class="label">Geschwindigkeit laut Trainer</span> <span id="m-speed">–</span></div>
+    <div><span class="label">Kadenz laut Trainer (nur Vergleich, beim D100 meist falsch)</span> <span id="m-trainer-cad">–</span></div>
+  </section>
+
+  <section class="checks">
+    <h2>Was der Trainer kann</h2>
+    <ul id="trainer-info"><li>Erst nach dem Verbinden sichtbar.</li></ul>
+  </section>
+
+  <section class="log">
+    <h2>Diagnose-Protokoll</h2>
+    <p class="sub">Nach dem Test bitte „Protokoll speichern“ klicken und mir die Datei schicken.</p>
+    <div class="log-buttons">
+      <button id="log-save">Protokoll speichern</button>
+      <button id="log-clear" class="secondary">Protokoll leeren</button>
+      <button id="sim-toggle" class="secondary">Simulator starten</button>
+    </div>
+    <pre id="log-view"></pre>
+  </section>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
