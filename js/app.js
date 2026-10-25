@@ -1,4 +1,6 @@
 import { BleDevice, tryRead, readDeviceInfo } from './ble.js';
+import { FtmsControl } from './ftms.js';
+import { ErgController } from './erg.js';
 import {
   parseIndoorBikeData, parseMachineFeature, parsePowerRange,
   parseHeartRate, parseCscMeasurement, CadenceCalculator, toHex,
@@ -130,7 +132,118 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// ---------- ERG ----------
+
+const control = new FtmsControl({ log });
+let ergSupported = false;
+const erg = new ErgController({ control, log, onChange: renderErg });
+
+function renderErg() {
+  const usable = control.ready && ergSupported;
+  $('#erg-target').textContent = erg.target;
+  $('#erg-toggle').textContent = erg.on ? 'ERG stoppen' : 'ERG starten';
+  $('#erg-pause').textContent = erg.paused ? 'Weiter' : 'Pause';
+  $('#erg-toggle').disabled = !usable && !erg.on;
+  for (const id of ['#erg-pause']) $(id).disabled = !usable || !erg.on;
+  for (const id of ['#erg-minus', '#erg-plus', '#erg-pct', '#erg-input', '#erg-form button']) $(id).disabled = !usable;
+
+  const box = $('#erg');
+  box.classList.toggle('active', erg.on && !erg.paused);
+  box.classList.toggle('paused', erg.on && erg.paused);
+
+  const status = $('#erg-status');
+  status.classList.toggle('error', Boolean(erg.error));
+  if (erg.error) status.textContent = `Problem: ${erg.error}`;
+  else if (!control.ready) status.textContent = erg.on ? 'Trainer getrennt. ERG geht weiter, sobald er wieder verbunden ist.' : 'Erst den Trainer verbinden.';
+  else if (!ergSupported) status.textContent = 'Dieser Trainer meldet keinen ERG-Modus.';
+  else if (!erg.on) status.textContent = `Bereit. Zielwert wählen und „ERG starten“ klicken (${erg.min} bis ${erg.max} W).`;
+  else if (erg.paused) status.textContent = 'Pause. Der Trainer hält gerade keine Leistung.';
+  else if (erg.sentTarget !== erg.target) status.textContent = 'Sende Zielwert an den Trainer …';
+  else status.textContent = `ERG aktiv: Der Trainer hält ${erg.target} W.`;
+  updateWakeLock();
+}
+
+// Bildschirm wach halten, solange ERG läuft (sonst schläft der Laptop mitten im Intervall ein).
+let wakeLock = null;
+let wakeLockBusy = false;
+async function updateWakeLock() {
+  if (wakeLockBusy) return;
+  wakeLockBusy = true;
+  try {
+    if (erg.on && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+      const lock = await navigator.wakeLock.request('screen');
+      lock.addEventListener('release', () => { if (wakeLock === lock) wakeLock = null; });
+      wakeLock = lock;
+    } else if (!erg.on && wakeLock) {
+      const lock = wakeLock;
+      wakeLock = null;
+      await lock.release();
+    }
+  } catch (err) {
+    log('Browser', `Bildschirm wach halten nicht möglich: ${err.message}`);
+    wakeLockBusy = false;
+    return; // nicht sofort erneut versuchen, sonst endlose Schleife bei dauerhafter Ablehnung
+  } finally {
+    wakeLockBusy = false;
+  }
+  // Zustand kann sich während des Wartens geändert haben.
+  if (Boolean(wakeLock) !== erg.on && document.visibilityState === 'visible' && 'wakeLock' in navigator) {
+    setTimeout(updateWakeLock, 0);
+  }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateWakeLock(); });
+
+$('#erg-toggle').addEventListener('click', () => (erg.on ? erg.disable() : erg.enable()));
+$('#erg-pause').addEventListener('click', () => erg.togglePause());
+$('#erg-minus').addEventListener('click', () => erg.adjust(-10));
+$('#erg-plus').addEventListener('click', () => erg.adjust(10));
+$('#erg-pct').addEventListener('click', () => erg.scale(0.9));
+$('#erg-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = Number($('#erg-input').value);
+  if (v > 0) erg.setTarget(v);
+  $('#erg-input').value = '';
+  $('#erg-input').blur();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || !control.ready || !ergSupported) return;
+  const actions = {
+    ArrowUp: () => erg.adjust(10),
+    ArrowDown: () => erg.adjust(-10),
+    PageDown: () => erg.scale(0.9),
+    ' ': () => (erg.on ? erg.togglePause() : erg.enable()),
+    Escape: () => erg.on && erg.disable(),
+  };
+  const action = actions[e.key];
+  // Gedrückt gehaltene Leertaste soll nicht dauernd Pause/Weiter umschalten; Pfeile dürfen wiederholen.
+  if (action && e.repeat && !e.key.startsWith('Arrow')) {
+    e.preventDefault();
+    return;
+  }
+  if (action) {
+    e.preventDefault();
+    action();
+  }
+});
+
 // ---------- Geräte ----------
+
+// Beim Trainer hängt zusätzlich die ERG-Steuerung am Verbindungsstatus.
+function trainerStatus() {
+  const base = statusHandler('#dev-trainer', 'Trainer verbinden');
+  return (state, detail) => {
+    base(state, detail);
+    if (state !== 'verbunden') control.detach();
+    // Getrennt, aufgegeben oder Fehler: ERG aus, damit es beim nächsten Verbinden nicht überraschend
+    // weiterläuft. Nur beim automatischen Wiederverbinden bleibt ERG an.
+    if (['getrennt', 'verloren', 'fehler'].includes(state) && erg.on) {
+      erg.on = false;
+      erg.paused = false;
+    }
+    renderErg();
+  };
+}
 
 const devices = {
   trainer: new BleDevice({
@@ -140,6 +253,7 @@ const devices = {
     async setup(server, dev) {
       const ftms = await server.getPrimaryService(0x1826);
       const items = [];
+      ergSupported = false;
 
       const featureDv = await tryRead(ftms, 0x2acc);
       if (featureDv) {
@@ -148,6 +262,7 @@ const devices = {
         log('Trainer', `Misst: ${f.machine.join(', ') || '–'}`);
         log('Trainer', `Steuerbar: ${f.target.join(', ') || '–'}`);
         items.push(yesNo('ERG (Zielleistung setzen)', f.powerTargetSupported));
+        ergSupported = f.powerTargetSupported;
         items.push(yesNo('Simulation (Steigung)', f.simulationSupported));
         items.push(`<li>Misst laut Trainer: ${escapeHtml(f.machine.join(', ') || '–')}</li>`);
       } else {
@@ -159,6 +274,7 @@ const devices = {
         const r = parsePowerRange(rangeDv);
         log('Trainer', `Leistungsbereich: ${toHex(rangeDv)} → ${r.min} bis ${r.max} W, Schritt ${r.step} W`);
         items.push(`<li>Leistungsbereich laut Trainer: ${r.min} bis ${r.max} W</li>`);
+        erg.setRange(r.min, r.max);
       }
 
       const info = await readDeviceInfo(server);
@@ -177,14 +293,26 @@ const devices = {
         if (d.cadence !== undefined) setMetric('trainerCad', d.cadence);
       });
 
-      // Statusmeldungen des Trainers nur protokollieren (hilft in Phase 2 beim ERG).
+      // Statusmeldungen des Trainers nur protokollieren (zeigt, was er mit unseren Befehlen macht).
       try {
         await dev.subscribe(ftms, 0x2ada, (dv) => log('Trainer', `Status ${toHex(dv)}`));
       } catch {
         log('Trainer', 'Kein Status-Kanal');
       }
+
+      if (ergSupported) {
+        try {
+          await control.attach(ftms, dev);
+          // Nicht abwarten, damit setup() fertig wird und die Messwerte sofort laufen.
+          erg.resync();
+        } catch (err) {
+          ergSupported = false;
+          log('Trainer', `Steuerung nicht verfügbar: ${err.message}`);
+        }
+      }
+      renderErg();
     },
-  }, { log, onStatus: statusHandler('#dev-trainer', 'Trainer verbinden') }),
+  }, { log, onStatus: trainerStatus() }),
 
   hr: new BleDevice({
     label: 'Brustgurt',
@@ -259,7 +387,11 @@ document.querySelectorAll('[data-connect]').forEach((btn) => {
 });
 
 document.querySelectorAll('[data-disconnect]').forEach((btn) => {
-  btn.addEventListener('click', () => devices[btn.dataset.disconnect].disconnect());
+  btn.addEventListener('click', async () => {
+    // ERG vor dem Trennen sauber beenden, damit der Trainer nicht auf dem letzten Ziel stehen bleibt.
+    if (btn.dataset.disconnect === 'trainer' && erg.on) await erg.disable();
+    devices[btn.dataset.disconnect].disconnect();
+  });
 });
 
 // ---------- Simulator (zum Ausprobieren ohne Trainer) ----------
@@ -309,3 +441,5 @@ $('#sim-toggle').addEventListener('click', () => {
   }
   log('Browser', navigator.userAgent);
 })();
+
+renderErg();

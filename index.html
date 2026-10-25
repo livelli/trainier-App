@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Trainer-App: Verbindungstest</title>
+  <title>Trainer-App</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
-    <h1>Verbindungstest</h1>
-    <p class="sub">Phase 1: prüft, ob Chrome deinen Trainer, den Brustgurt und den Kadenzsensor findet. Das Training selbst kommt später.</p>
+    <h1>Trainer-App</h1>
+    <p class="sub">Phase 2: Geräte verbinden und den Trainer im ERG-Modus auf eine feste Wattzahl stellen. Workouts kommen später.</p>
   </header>
 
   <div id="browser-warning" class="warning" hidden></div>
@@ -49,6 +49,32 @@
     <div class="metric"><span class="label">Watt</span><span class="value" id="m-power">–</span></div>
     <div class="metric"><span class="label">Herzfrequenz</span><span class="value" id="m-hr">–</span></div>
     <div class="metric"><span class="label">Kadenz (Sensor)</span><span class="value" id="m-cad">–</span></div>
+  </section>
+
+  <section class="erg" id="erg">
+    <div class="erg-head">
+      <h2>ERG-Steuerung</h2>
+      <p class="sub" id="erg-status">Erst den Trainer verbinden.</p>
+    </div>
+    <div class="erg-main">
+      <div class="erg-target">
+        <span class="label">Ziel</span>
+        <span class="value" id="erg-target">100</span>
+        <span class="unit">W</span>
+      </div>
+      <div class="erg-buttons">
+        <button id="erg-toggle" disabled>ERG starten</button>
+        <button id="erg-pause" class="secondary" disabled>Pause</button>
+        <button id="erg-minus" class="secondary" disabled>−10 W</button>
+        <button id="erg-plus" class="secondary" disabled>+10 W</button>
+        <button id="erg-pct" class="secondary" disabled>−10 %</button>
+        <form id="erg-form" class="erg-form" novalidate>
+          <input id="erg-input" type="number" inputmode="numeric" placeholder="Watt" disabled>
+          <button type="submit" class="secondary" disabled>Setzen</button>
+        </form>
+      </div>
+    </div>
+    <p class="sub erg-keys">Tastatur: Pfeil hoch/runter = ±10 W, Leertaste = Pause/Weiter, Bild runter = −10 %, Esc = ERG aus.</p>
   </section>
 
   <section class="extra">

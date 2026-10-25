@@ -4,7 +4,7 @@ Eigene Trainings-Web-App für den Van Rysel D100 (Bluetooth FTMS), einen Bluetoo
 
 ## Stand
 
-**Phase 1: Verbindungstest.** Die Seite verbindet Trainer, Brustgurt und Kadenzsensor und zeigt Watt, Herzfrequenz und Kadenz an. Den Trainer steuert sie noch nicht. ERG, Workouts, Aufzeichnung, Zonen, Export und Verlauf folgen in den nächsten Phasen.
+**Phase 2: ERG-Steuerung.** Die Seite verbindet Trainer, Brustgurt und Kadenzsensor, zeigt Watt, Herzfrequenz und Kadenz an und stellt den Trainer im ERG-Modus auf eine feste Wattzahl (mit Pause, ±10 W, −10 % und Tastatursteuerung). Workouts, Aufzeichnung, Zonen, Export und Verlauf folgen in den nächsten Phasen.
 
 ## Test am Trainer
 
