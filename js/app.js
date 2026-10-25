@@ -381,8 +381,9 @@ function announce(st) {
 }
 
 function spokenDuration(totalS) {
-  const m = Math.floor(totalS / 60);
-  const sec = Math.round(totalS % 60);
+  const s = Math.round(totalS);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
   const min = m === 1 ? '1 Minute' : `${m} Minuten`;
   if (!m) return `${sec} Sekunden`;
   return sec ? `${min} ${sec}` : min;
@@ -414,6 +415,7 @@ function openRide(workout) {
   $('#r-name').textContent = workout ? workout.name : 'Freie Fahrt';
   $('#r-profile-box').hidden = !workout;
   $('#r-skip').hidden = !workout;
+  $('#r-sound').hidden = !workout;
   buildProfile();
   renderRide();
   window.scrollTo(0, 0);
@@ -424,6 +426,7 @@ async function closeRide() {
   // wieder ein, während der Trainer den Stopp noch bestätigt.
   const r = ride;
   ride = null;
+  sound.silence();
   if (r && r.player && r.player.state !== 'fertig') r.player.stop(Date.now());
   if (erg.on) await erg.disable();
   $('#ride-screen').hidden = true;
@@ -593,7 +596,8 @@ function renderRide() {
     screen.style.setProperty('--zone', '#3a434f');
     $('#r-target').textContent = ride.player && state !== 'bereit' && state !== 'fertig' ? 'Kein Ziel (freie Fahrt)' : 'Ziel –';
   }
-  ride.cadenceGoal = cadGoal;
+  // Gelb nur während der Fahrt, nicht vor dem Start oder nach dem Ende.
+  ride.cadenceGoal = state === 'läuft' ? cadGoal : null;
   $('#r-cad-target').textContent = cadGoal ? `Ziel ${formatCadence(cadGoal)}` : 'U/min · kein Ziel';
   $('#r-seg-label').textContent = segLabel;
   $('#r-countdown').textContent = countdown;

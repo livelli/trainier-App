@@ -119,7 +119,8 @@ test('Kadenz aus der Datei und als Empfehlung', async () => {
     <FreeRide Duration="60"/>
   </workout></workout_file>`);
   const c = w.segments.map(cadenceTarget);
-  assert.deepEqual(c[0], { low: 85, high: 95 });
+  assert.deepEqual(c[0], { low: 80, high: 90 });
+  assert.deepEqual(cadenceTarget({ startPct: 0.9, endPct: 0.9, free: false }), { low: 85, high: 95 });
   assert.deepEqual(c[1], { low: 70, high: 70 });
   assert.deepEqual(c[2], { low: 95, high: 105 });
   assert.deepEqual(c[3], { low: 100, high: 100 });

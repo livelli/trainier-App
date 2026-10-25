@@ -38,12 +38,22 @@ export class Sound {
 
   nextMode() {
     this.mode = SOUND_MODES[(SOUND_MODES.indexOf(this.mode) + 1) % SOUND_MODES.length];
-    if (this.mode === 'aus') window.speechSynthesis?.cancel();
+    if (this.mode !== 'ansage') this.silence();
     return this.mode;
+  }
+
+  silence() {
+    try { window.speechSynthesis?.cancel(); } catch { /* egal */ }
   }
 
   _beep(freq, durationS, delayS = 0) {
     if (!this.ctx || this.mode === 'aus') return;
+    try {
+      this._play(freq, durationS, delayS);
+    } catch { /* ohne Ton weiterfahren */ }
+  }
+
+  _play(freq, durationS, delayS) {
     const t = this.ctx.currentTime + delayS;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();

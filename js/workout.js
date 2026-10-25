@@ -90,7 +90,9 @@ export function cadenceTarget(segment) {
   if (!segment || segment.free) return null;
   if (segment.cadence) return segment.cadence;
   const pct = (segment.startPct + segment.endPct) / 2;
-  return pct > 1.05 ? { low: 90, high: 100 } : { low: 85, high: 95 };
+  if (pct > 1.05) return { low: 90, high: 100 };
+  if (pct > 0.75) return { low: 85, high: 95 };
+  return { low: 80, high: 90 };
 }
 
 export function formatCadence(c) {
