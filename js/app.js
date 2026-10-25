@@ -4,6 +4,7 @@ import { ErgController } from './erg.js';
 import { parseZwo, totalDuration, formatTime } from './workout.js';
 import { WorkoutPlayer } from './player.js';
 import { powerZone } from './zones.js';
+import { normalizeEntry, planDate, sortByPlan, defaultBriefing } from './plan.js';
 import {
   parseIndoorBikeData, parseMachineFeature, parsePowerRange,
   parseHeartRate, parseCscMeasurement, CadenceCalculator, toHex,
@@ -186,17 +187,17 @@ let workouts = [];
 async function loadWorkouts() {
   try {
     const res = await fetch('workouts/index.json', { cache: 'no-cache' });
-    const files = await res.json();
-    const loaded = await Promise.all(files.map(async (file) => {
+    const entries = (await res.json()).map(normalizeEntry).filter(Boolean);
+    const loaded = await Promise.all(entries.map(async (entry) => {
       try {
-        const xml = await (await fetch(`workouts/${file}`, { cache: 'no-cache' })).text();
-        return parseZwo(xml);
+        const xml = await (await fetch(`workouts/${entry.datei}`, { cache: 'no-cache' })).text();
+        return { ...parseZwo(xml), datum: entry.datum, briefing: entry.briefing };
       } catch (err) {
-        log('Workouts', `${file} konnte nicht gelesen werden: ${err.message}`);
+        log('Workouts', `${entry.datei} konnte nicht gelesen werden: ${err.message}`);
         return null;
       }
     }));
-    workouts = loaded.filter(Boolean);
+    workouts = sortByPlan(loaded.filter(Boolean));
   } catch (err) {
     log('Workouts', `Liste konnte nicht geladen werden: ${err.message}`);
   }
@@ -236,6 +237,21 @@ function renderWorkoutList() {
   for (const w of workouts) {
     const card = document.createElement('div');
     card.className = 'workout-card';
+    const plan = planDate(w.datum);
+    if (plan) {
+      card.classList.toggle('past', plan.when === 'vorbei');
+      card.classList.toggle('today', plan.when === 'heute');
+      const date = document.createElement('div');
+      date.className = 'plan-date';
+      date.textContent = plan.text;
+      if (plan.when) {
+        const badge = document.createElement('span');
+        badge.className = 'plan-when';
+        badge.textContent = plan.when;
+        date.append(' ', badge);
+      }
+      card.append(date);
+    }
     const h = document.createElement('h3');
     h.textContent = w.name;
     const meta = document.createElement('div');
@@ -250,10 +266,54 @@ function renderWorkoutList() {
     const btn = document.createElement('button');
     btn.textContent = 'Dieses Workout fahren';
     btn.addEventListener('click', () => openRide(w));
-    card.append(h, meta, miniProfile(w), desc, btn);
+    const info = document.createElement('button');
+    info.className = 'secondary';
+    info.textContent = 'Infos vor dem Start';
+    info.addEventListener('click', () => openBriefing(w));
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    actions.append(btn, info);
+    card.append(h, meta, miniProfile(w), desc, actions);
     list.append(card);
   }
 }
+
+function openBriefing(w) {
+  const b = w.briefing ?? defaultBriefing(w);
+  const plan = planDate(w.datum);
+  $('#b-title').textContent = w.name;
+  $('#b-date').textContent = plan ? `Geplant: ${plan.text}` : '';
+  $('#b-date').hidden = !plan;
+  const body = $('#b-body');
+  body.textContent = '';
+  const sections = [
+    ['Worum es geht', b.ziel],
+    ['Wie es sich anfühlen soll', b.gefuehl],
+    ['Essen und Trinken', b.fueling],
+  ];
+  for (const [title, text] of sections) {
+    if (!text) continue;
+    const h = document.createElement('h3');
+    h.textContent = title;
+    const p = document.createElement('p');
+    p.textContent = text;
+    body.append(h, p);
+  }
+  if (Array.isArray(b.tipps) && b.tipps.length) {
+    const h = document.createElement('h3');
+    h.textContent = 'Wichtig zu wissen';
+    const ul = document.createElement('ul');
+    for (const t of b.tipps) {
+      const li = document.createElement('li');
+      li.textContent = t;
+      ul.append(li);
+    }
+    body.append(h, ul);
+  }
+  $('#b-ride').onclick = () => { $('#briefing').close(); openRide(w); };
+  $('#briefing').showModal();
+}
+$('#b-close').addEventListener('click', () => $('#briefing').close());
 
 $('#zwo-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];

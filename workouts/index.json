@@ -1,7 +1,64 @@
 [
-  "erg-stufentest.zwo",
-  "einrollen-30.zwo",
-  "sweet-spot-3x8.zwo",
-  "grundlage-60.zwo",
-  "vo2max-5x3.zwo"
+  {
+    "datei": "erg-stufentest.zwo",
+    "briefing": {
+      "ziel": "Ein Funktionstest für App und Trainer, kein echtes Training. Du prüfst, ob der D100 jede Stufe sauber übernimmt.",
+      "gefuehl": "Von ganz locker bis zügig. Die letzte Stufe (90 %) ist spürbar, aber nach 2 Minuten vorbei.",
+      "fueling": "Nichts Besonderes nötig. Eine Flasche Wasser reicht.",
+      "tipps": [
+        "Achte darauf, dass die Wattzahl nach jedem Stufenwechsel innert weniger Sekunden beim Ziel ist.",
+        "Danach „Protokoll speichern“ und mir die Datei schicken, wenn etwas komisch war."
+      ]
+    }
+  },
+  {
+    "datei": "einrollen-30.zwo",
+    "briefing": {
+      "ziel": "Locker Beine bewegen, Durchblutung anregen, Erholung fördern. Zählt als aktive Pause.",
+      "gefuehl": "Sehr locker. Du könntest dabei telefonieren. Der Puls bleibt deutlich unter 140.",
+      "fueling": "Vorher normal essen, während der Fahrt nur Wasser.",
+      "tipps": [
+        "Kadenz ruhig hoch halten (85 bis 95 U/min), das schont die Beine.",
+        "Wenn es sich hart anfühlt, bist du müde: dann eher kürzer fahren statt mehr Watt."
+      ]
+    }
+  },
+  {
+    "datei": "grundlage-60.zwo",
+    "briefing": {
+      "ziel": "Ausdauerbasis aufbauen. Diese ruhigen Stunden machen den Grossteil eines guten Trainings aus.",
+      "gefuehl": "Angenehm und gleichmässig. Reden in ganzen Sätzen geht. Gegen Ende darf es etwas zäher werden, der Puls steigt dann leicht an.",
+      "fueling": "2 bis 3 Stunden vorher eine Mahlzeit mit Kohlenhydraten. Während der Fahrt 500 bis 750 ml trinken, bei Hunger ein Sportgetränk oder eine Banane.",
+      "tipps": [
+        "Ventilator an: drinnen fehlt der Fahrtwind, sonst steigt der Puls unnötig.",
+        "Nicht schneller fahren, weil es sich leicht anfühlt. Genau das ist der Sinn."
+      ]
+    }
+  },
+  {
+    "datei": "sweet-spot-3x8.zwo",
+    "briefing": {
+      "ziel": "FTP anheben mit Blöcken knapp unter der Schwelle (90 % FTP). Viel Wirkung bei überschaubarer Ermüdung.",
+      "gefuehl": "Die Blöcke sind „angenehm hart“: Reden nur noch in kurzen Sätzen, der letzte Block fordert. Die 3 Minuten Pause sind wirklich locker.",
+      "fueling": "2 bis 3 Stunden vorher eine Mahlzeit mit Kohlenhydraten. Während der Fahrt eine Flasche trinken, gerne ein Sportgetränk.",
+      "tipps": [
+        "Nur fahren, wenn die Beine frisch sind, nicht am Tag nach einer harten Einheit.",
+        "Solange kein FTP-Test gemacht ist, kann die FTP zu hoch eingestellt sein. Ist der erste Block schon kaum machbar: −10 % drücken.",
+        "Kadenz 85 bis 95 U/min halten, im ERG-Modus nicht einbrechen lassen."
+      ]
+    }
+  },
+  {
+    "datei": "vo2max-5x3.zwo",
+    "briefing": {
+      "ziel": "Maximale Sauerstoffaufnahme trainieren. Die härteste Einheit in der Liste.",
+      "gefuehl": "Jedes Intervall wird nach etwa 2 Minuten richtig hart, am Ende kannst du nicht mehr reden. Das ist so gewollt. Die Erholung ist ganz locker.",
+      "fueling": "2 bis 3 Stunden vorher eine Mahlzeit mit Kohlenhydraten, nicht mit vollem Magen fahren. Während der Fahrt eine Flasche trinken.",
+      "tipps": [
+        "Nur ausgeruht fahren, höchstens einmal pro Woche.",
+        "Solange kein FTP-Test gemacht ist, kann die FTP zu hoch eingestellt sein. Schaffst du ein Intervall nicht: −10 % drücken statt abbrechen.",
+        "Im ERG-Modus hohe Kadenz (90+) halten. Fällt sie ab, wird der Widerstand schwerer und du kommst nicht mehr hoch."
+      ]
+    }
+  }
 ]

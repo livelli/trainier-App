@@ -118,6 +118,35 @@ input[type="number"] {
 .mini-profile { display: flex; align-items: flex-end; gap: 1px; height: 40px; }
 .mini-profile span { flex: 1 1 0; border-radius: 1px 1px 0 0; }
 
+.workout-card.today { box-shadow: inset 0 0 0 2px var(--accent); }
+.workout-card.past { opacity: 0.6; }
+.plan-date { color: var(--accent); font-weight: 600; font-size: 0.95rem; margin: 0; }
+.plan-when {
+  background: var(--accent);
+  color: #06121f;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.8rem;
+}
+.workout-card.past .plan-when { background: var(--panel); color: var(--muted); }
+.card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.workout-card .card-actions button.secondary { background: var(--panel); box-shadow: inset 0 0 0 1px #3a434f; }
+
+.briefing {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  background: var(--panel);
+  color: var(--text);
+  border: 0;
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+.briefing::backdrop { background: rgba(0, 0, 0, 0.6); }
+.briefing h3 { color: var(--soft); }
+.briefing p, .briefing ul { margin: 0 0 8px; color: var(--text); }
+.briefing ul { padding-left: 20px; }
+.briefing .card-actions { margin-top: 16px; }
+
 .workout-extra { display: flex; flex-wrap: wrap; gap: 10px; }
 .file-button { display: inline-block; }
 .file-button input { display: none; }
