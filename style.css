@@ -149,6 +149,8 @@ input[type="number"] {
 
 .workout-extra { display: flex; flex-wrap: wrap; gap: 10px; }
 .file-button { display: inline-block; }
+a.file-button { text-decoration: none; }
+.dash-link .sub { margin-bottom: 10px; }
 .file-button input { display: none; }
 
 details summary { cursor: pointer; font-weight: 600; }
