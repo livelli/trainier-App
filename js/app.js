@@ -238,10 +238,11 @@ function renderWorkoutList() {
     const card = document.createElement('div');
     card.className = 'workout-card';
     const plan = planDate(w.datum);
+    let date = null;
     if (plan) {
       card.classList.toggle('past', plan.when === 'vorbei');
       card.classList.toggle('today', plan.when === 'heute');
-      const date = document.createElement('div');
+      date = document.createElement('div');
       date.className = 'plan-date';
       date.textContent = plan.text;
       if (plan.when) {
@@ -250,10 +251,11 @@ function renderWorkoutList() {
         badge.textContent = plan.when;
         date.append(' ', badge);
       }
-      card.append(date);
     }
     const h = document.createElement('h3');
     h.textContent = w.name;
+    card.append(h);
+    if (date) card.append(date);
     const meta = document.createElement('div');
     meta.className = 'meta';
     const peaks = w.segments.filter((s) => !s.free).map((s) => Math.max(s.startPct, s.endPct));
@@ -273,7 +275,7 @@ function renderWorkoutList() {
     const actions = document.createElement('div');
     actions.className = 'card-actions';
     actions.append(btn, info);
-    card.append(h, meta, miniProfile(w), desc, actions);
+    card.append(meta, miniProfile(w), desc, actions);
     list.append(card);
   }
 }

@@ -9,7 +9,19 @@ export function normalizeEntry(entry) {
   return {
     datei: entry.datei,
     datum: parseIsoDate(entry.datum) ? entry.datum : null,
-    briefing: entry.briefing && typeof entry.briefing === 'object' ? entry.briefing : null,
+    briefing: cleanBriefing(entry.briefing),
+  };
+}
+
+// Nur Textfelder übernehmen, damit eine fehlerhafte index.json nicht „[object Object]“ anzeigt.
+function cleanBriefing(b) {
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return null;
+  const text = (v) => (typeof v === 'string' && v.trim() ? v : null);
+  return {
+    ziel: text(b.ziel),
+    gefuehl: text(b.gefuehl),
+    fueling: text(b.fueling),
+    tipps: Array.isArray(b.tipps) ? b.tipps.filter(text) : [],
   };
 }
 
@@ -63,9 +75,9 @@ export function defaultBriefing(workout) {
   let fueling;
   if (minutes < 60) fueling = 'Vorher normal essen (2 bis 3 Stunden vorher eine Mahlzeit). Während der Fahrt reicht Wasser, etwa eine Flasche (500 bis 750 ml).';
   else if (minutes <= 90) fueling = 'Vorher eine Mahlzeit mit Kohlenhydraten. Während der Fahrt 30 bis 60 g Kohlenhydrate pro Stunde (z. B. Sportgetränk oder eine Banane) und 500 bis 750 ml pro Stunde trinken.';
-  else fueling = 'Vorher eine Mahlzeit mit Kohlenhydraten. Während der Fahrt 60 bis 90 g Kohlenhydrate pro Stunde, ab der ersten halben Stunde regelmässig, und 500 bis 750 ml pro Stunde trinken.';
+  else fueling = 'Vorher eine Mahlzeit mit Kohlenhydraten. Während der Fahrt etwa 60 g Kohlenhydrate pro Stunde (mehr nur, wenn dein Magen das gewohnt ist), ab der ersten halben Stunde regelmäßig, und 500 bis 750 ml pro Stunde trinken.';
   return {
-    ziel: workout.description || 'Kein Beschrieb vorhanden.',
+    ziel: workout.description || 'Keine Beschreibung vorhanden.',
     gefuehl,
     fueling,
     tipps: [

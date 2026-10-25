@@ -119,7 +119,7 @@ input[type="number"] {
 .mini-profile span { flex: 1 1 0; border-radius: 1px 1px 0 0; }
 
 .workout-card.today { box-shadow: inset 0 0 0 2px var(--accent); }
-.workout-card.past { opacity: 0.6; }
+.workout-card.past > :not(.card-actions) { opacity: 0.6; }
 .plan-date { color: var(--accent); font-weight: 600; font-size: 0.95rem; margin: 0; }
 .plan-when {
   background: var(--accent);

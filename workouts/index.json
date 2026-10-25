@@ -6,8 +6,8 @@
       "gefuehl": "Von ganz locker bis zügig. Die letzte Stufe (90 %) ist spürbar, aber nach 2 Minuten vorbei.",
       "fueling": "Nichts Besonderes nötig. Eine Flasche Wasser reicht.",
       "tipps": [
-        "Achte darauf, dass die Wattzahl nach jedem Stufenwechsel innert weniger Sekunden beim Ziel ist.",
-        "Danach „Protokoll speichern“ und mir die Datei schicken, wenn etwas komisch war."
+        "Achte darauf, dass die Wattzahl nach jedem Stufenwechsel innerhalb weniger Sekunden beim Ziel ist.",
+        "Danach „Protokoll speichern“ und die Datei an Claude schicken, wenn etwas komisch war."
       ]
     }
   },
@@ -15,7 +15,7 @@
     "datei": "einrollen-30.zwo",
     "briefing": {
       "ziel": "Locker Beine bewegen, Durchblutung anregen, Erholung fördern. Zählt als aktive Pause.",
-      "gefuehl": "Sehr locker. Du könntest dabei telefonieren. Der Puls bleibt deutlich unter 140.",
+      "gefuehl": "Sehr locker. Du könntest dabei telefonieren. Du bist nie außer Atem.",
       "fueling": "Vorher normal essen, während der Fahrt nur Wasser.",
       "tipps": [
         "Kadenz ruhig hoch halten (85 bis 95 U/min), das schont die Beine.",
@@ -26,8 +26,8 @@
   {
     "datei": "grundlage-60.zwo",
     "briefing": {
-      "ziel": "Ausdauerbasis aufbauen. Diese ruhigen Stunden machen den Grossteil eines guten Trainings aus.",
-      "gefuehl": "Angenehm und gleichmässig. Reden in ganzen Sätzen geht. Gegen Ende darf es etwas zäher werden, der Puls steigt dann leicht an.",
+      "ziel": "Ausdauerbasis aufbauen. Diese ruhigen Stunden machen den Großteil eines guten Trainings aus.",
+      "gefuehl": "Angenehm und gleichmäßig. Reden in ganzen Sätzen geht. Gegen Ende darf es etwas zäher werden, der Puls steigt dann leicht an.",
       "fueling": "2 bis 3 Stunden vorher eine Mahlzeit mit Kohlenhydraten. Während der Fahrt 500 bis 750 ml trinken, bei Hunger ein Sportgetränk oder eine Banane.",
       "tipps": [
         "Ventilator an: drinnen fehlt der Fahrtwind, sonst steigt der Puls unnötig.",

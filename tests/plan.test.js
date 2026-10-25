@@ -7,6 +7,9 @@ test('normalizeEntry nimmt Dateinamen und Objekte', () => {
   assert.deepEqual(normalizeEntry({ datei: 'b.zwo', datum: '2026-10-28' }), { datei: 'b.zwo', datum: '2026-10-28', briefing: null });
   assert.equal(normalizeEntry({ datum: '2026-10-28' }), null);
   assert.equal(normalizeEntry({ datei: 'c.zwo', datum: 'morgen' }).datum, null);
+  assert.equal(normalizeEntry({ datei: 'd.zwo', briefing: [] }).briefing, null);
+  assert.deepEqual(normalizeEntry({ datei: 'e.zwo', briefing: { ziel: 'Z', gefuehl: 5, tipps: ['a', {}] } }).briefing,
+    { ziel: 'Z', gefuehl: null, fueling: null, tipps: ['a'] });
 });
 
 test('parseIsoDate lehnt ungültige Daten ab', () => {
@@ -34,6 +37,6 @@ test('defaultBriefing richtet Fueling nach Dauer und Gefühl nach Intensität', 
   const hard = { description: 'd', segments: [{ durationS: 6000, startPct: 1.1, endPct: 1.1, free: false }] };
   assert.match(defaultBriefing(easy).fueling, /reicht Wasser/);
   assert.match(defaultBriefing(easy).gefuehl, /Locker/);
-  assert.match(defaultBriefing(hard).fueling, /60 bis 90 g/);
+  assert.match(defaultBriefing(hard).fueling, /60 g Kohlenhydrate/);
   assert.match(defaultBriefing(hard).gefuehl, /sehr hart/);
 });
