@@ -314,3 +314,12 @@ details summary { cursor: pointer; font-weight: 600; }
   .ride { padding: 16px; }
   .tiles { grid-template-columns: 1fr; }
 }
+
+.strava-steps { margin: 10px 0; padding-left: 20px; color: var(--soft); line-height: 1.5; }
+.strava-steps a, .history-strava a { color: var(--accent); }
+.strava-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 10px 0; }
+.strava-form label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 0.9rem; }
+.strava-form input { background: var(--panel-2); color: var(--text); border: 1px solid #3a434f; border-radius: 6px; padding: 8px 10px; font: inherit; min-width: 0; width: 14rem; max-width: 100%; }
+.strava-msg { background: var(--panel-2); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
+.history-strava { font-size: 0.9rem; color: var(--soft); }
+.history-strava.fehler { color: #f97316; }

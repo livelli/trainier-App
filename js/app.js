@@ -9,6 +9,7 @@ import { normalizeEntry, planDate, sortByPlan, defaultBriefing } from './plan.js
 import { Recording } from './recorder.js';
 import { encodeFit, fitFileName } from './fit.js';
 import { saveRide, getRide, deleteRide, listRides } from './storage.js';
+import * as strava from './strava.js';
 import {
   parseIndoorBikeData, parseMachineFeature, parsePowerRange,
   parseHeartRate, parseCscMeasurement, CadenceCalculator, toHex,
@@ -692,6 +693,11 @@ async function saveFinal(r) {
       await saveRide(r.rec.toRecord(true));
       r.saveNote = 'Gespeichert unter „Deine Fahrten“.';
       log('Speichern', `Fahrt gespeichert: ${r.rec.name}, ${n} s`);
+      const st = strava.loadSettings();
+      if (strava.isConnected(st) && st.auto !== false) {
+        r.saveNote = 'Gespeichert und wird zu Strava hochgeladen.';
+        uploadToStrava(r.rec.id); // nicht abwarten, das Beenden soll nicht hängen
+      }
     }
   } catch (err) {
     r.saveNote = `Speichern hat nicht geklappt: ${err.message}`;
@@ -753,9 +759,36 @@ async function renderHistory() {
     if (s && s.tss !== null) parts.push(`TSS ${s.tss}`);
     stats.textContent = parts.join(' · ');
     info.append(title, when, stats);
+    const sv = r.strava;
+    if (sv) {
+      const line = document.createElement('span');
+      line.className = `history-strava ${sv.status}`;
+      if (sv.status === 'hochgeladen') {
+        const a = document.createElement('a');
+        a.href = strava.activityUrl(sv.activityId);
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Auf Strava ansehen';
+        line.append('Strava: hochgeladen · ', a);
+      } else if (sv.status === 'läuft') {
+        // Ohne laufenden Upload war die Seite zu, bevor Strava fertig war.
+        line.textContent = stravaBusy.has(r.id) ? 'Strava: wird hochgeladen …' : 'Strava: Upload wurde unterbrochen.';
+      }
+      else line.textContent = `Strava: nicht hochgeladen. ${sv.error || ''}`;
+      info.append(line);
+    }
     const actions = document.createElement('div');
     actions.className = 'card-actions';
+    // Die laufende Fahrt erst nach dem Beenden hochladen, sonst landet nur ein Teil auf Strava.
+    const live = ride && ride.rec && ride.rec.id === r.id;
+    if (strava.isConnected() && !live && r.complete !== false && !stravaBusy.has(r.id) && (!sv || sv.status !== 'hochgeladen')) {
+      const up = document.createElement('button');
+      up.textContent = sv ? 'Nochmals zu Strava' : 'Zu Strava hochladen';
+      up.addEventListener('click', () => uploadToStrava(r.id));
+      actions.append(up);
+    }
     const fit = document.createElement('button');
+    fit.className = 'secondary';
     fit.textContent = 'FIT-Datei herunterladen';
     fit.addEventListener('click', () => downloadFit(r.id));
     const del = document.createElement('button');
@@ -792,6 +825,115 @@ async function downloadFit(id) {
 }
 
 renderHistory();
+
+// ---------- Strava ----------
+
+const stravaBusy = new Set();
+
+async function setStravaStatus(id, status) {
+  const record = await getRide(id);
+  if (!record) return null;
+  record.strava = { ...status, at: Date.now() };
+  await saveRide(record);
+  return record;
+}
+
+async function uploadToStrava(id) {
+  if (stravaBusy.has(id)) return;
+  stravaBusy.add(id);
+  try {
+    const before = await getRide(id);
+    if (!before) return;
+    const record = await setStravaStatus(id, { status: 'läuft', uploadId: before.strava && before.strava.uploadId });
+    if (!record) return;
+    renderHistory();
+    const res = await strava.uploadFit({
+      bytes: encodeFit(record),
+      fileName: fitFileName(record),
+      name: record.name,
+      externalId: `${record.id}.fit`,
+      uploadId: record.strava && record.strava.uploadId,
+      // Upload-Nummer sofort merken, damit ein späterer Versuch nachfragen kann statt doppelt zu senden.
+      onUploadId: (uploadId) => setStravaStatus(id, { status: 'läuft', uploadId }),
+    });
+    await setStravaStatus(id, { status: 'hochgeladen', activityId: res.activityId });
+    log('Strava', `Hochgeladen: ${record.name} → Aktivität ${res.activityId}${res.duplicate ? ' (war schon da)' : ''}`);
+  } catch (err) {
+    log('Strava', `Upload fehlgeschlagen: ${err.message}`);
+    const cur = await getRide(id).catch(() => null);
+    await setStravaStatus(id, { status: 'fehler', error: err.message, uploadId: cur && cur.strava && cur.strava.uploadId }).catch(() => {});
+  } finally {
+    stravaBusy.delete(id);
+    renderHistory();
+  }
+}
+
+function renderStrava(message = '') {
+  const s = strava.loadSettings();
+  const connected = strava.isConnected(s);
+  $('#strava-setup').hidden = connected;
+  $('#strava-connected').hidden = !connected;
+  $('#strava-id').value = s.clientId || '';
+  $('#strava-secret').value = s.clientSecret || '';
+  $('#strava-who').textContent = s.athlete ? `Verbunden als ${s.athlete}.` : 'Verbunden.';
+  $('#strava-auto').checked = s.auto !== false;
+  $('#strava-msg').textContent = message;
+  $('#strava-msg').hidden = !message;
+  $('#strava-callback').textContent = location.hostname;
+}
+
+$('#strava-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const clientId = $('#strava-id').value.trim();
+  const clientSecret = $('#strava-secret').value.trim();
+  if (!/^\d+$/.test(clientId) || clientSecret.length < 20) {
+    renderStrava('Bitte die Client-ID (nur Ziffern) und das Client-Secret (lange Zeichenfolge) von Strava eintragen.');
+    return;
+  }
+  try {
+    strava.storeSettings({ ...strava.loadSettings(), clientId, clientSecret });
+  } catch {
+    renderStrava('Dieser Browser kann sich nichts merken (privates Fenster?). Bitte in einem normalen Chrome-Fenster öffnen.');
+    return;
+  }
+  location.href = strava.authorizeUrl(clientId, strava.redirectUri(location), strava.newState());
+});
+
+$('#strava-auto').addEventListener('change', (e) => {
+  strava.storeSettings({ ...strava.loadSettings(), auto: e.target.checked });
+});
+
+$('#strava-disconnect').addEventListener('click', () => {
+  if (!confirm('Verbindung zu Strava trennen? Bereits hochgeladene Fahrten bleiben auf Strava.')) return;
+  strava.disconnect();
+  renderStrava('Getrennt. Du kannst jederzeit wieder verbinden.');
+  renderHistory();
+});
+
+// Rückkehr von der Strava-Anmeldung: Code gegen Schlüssel tauschen und die Adresszeile aufräumen.
+(async function handleStravaCallback() {
+  const cb = strava.parseCallback(location.search, strava.takeState());
+  if (!cb) {
+    renderStrava();
+    return;
+  }
+  history.replaceState(null, '', strava.redirectUri(location));
+  if (cb.error) {
+    renderStrava(cb.error);
+    return;
+  }
+  renderStrava('Verbinde mit Strava …');
+  try {
+    await strava.finishConnect(cb.code);
+    log('Strava', 'Verbunden');
+    renderStrava('Mit Strava verbunden. Neue Fahrten werden ab jetzt automatisch hochgeladen.');
+    renderHistory();
+  } catch (err) {
+    log('Strava', `Verbinden fehlgeschlagen: ${err.message}`);
+    renderStrava(`Verbinden hat nicht geklappt: ${err.message}`);
+  }
+  $('#strava-panel').scrollIntoView();
+})();
 
 // ---------- Bedienung ----------
 

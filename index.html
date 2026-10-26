@@ -86,8 +86,35 @@
 
   <section class="panel">
     <h2>Deine Fahrten</h2>
-    <p class="sub">Jede Fahrt wird automatisch gespeichert, nur hier in diesem Browser. Für iGPSPORT oder Strava die FIT-Datei herunterladen und dort hochladen.</p>
+    <p class="sub">Jede Fahrt wird automatisch gespeichert, nur hier in diesem Browser. Mit Strava verbunden, gehen sie automatisch dorthin. Für iGPSPORT die FIT-Datei herunterladen und dort hochladen.</p>
     <div id="history-list" class="history-list"><p class="sub">Lade Fahrten …</p></div>
+  </section>
+
+  <section class="panel" id="strava-panel">
+    <h2>Strava</h2>
+    <p id="strava-msg" class="strava-msg" hidden></p>
+    <div id="strava-setup">
+      <p class="sub">Einmal einrichten, dann landet jede gespeicherte Fahrt automatisch bei Strava.</p>
+      <ol class="strava-steps">
+        <li>Auf <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> eine Anwendung anlegen.
+          Name (Application Name): <b>Trainer-App</b>, Kategorie (Category): <b>Training</b>,
+          Website: <b>https://livelli.github.io</b>, Callback-Domain (Authorization Callback Domain): <b id="strava-callback">livelli.github.io</b>.
+          Ein Logo (Icon) musst du hochladen, irgendein Bild genügt.</li>
+        <li>Strava zeigt dir danach die <b>Client-ID</b> und das <b>Client-Secret</b> (beim Secret auf „Anzeigen“ klicken). Beide hier eintragen.</li>
+        <li>Auf „Mit Strava verbinden“ klicken und bei Strava „Aktivitäten hochladen“ erlauben.</li>
+      </ol>
+      <form id="strava-form" class="strava-form" novalidate>
+        <label>Client-ID <input id="strava-id" inputmode="numeric" autocomplete="off"></label>
+        <label>Client-Secret <input id="strava-secret" type="password" autocomplete="off"></label>
+        <button type="submit">Mit Strava verbinden</button>
+      </form>
+      <p class="sub">Die beiden Codes bleiben nur in diesem Browser auf deinem Laptop. Veröffentliche unter livelli.github.io keine fremden Seiten, die könnten sie sonst lesen.</p>
+    </div>
+    <div id="strava-connected" hidden>
+      <p><span id="strava-who">Verbunden.</span></p>
+      <label class="option"><input type="checkbox" id="strava-auto"> Fahrten nach dem Beenden automatisch hochladen</label>
+      <button id="strava-disconnect" class="secondary">Verbindung trennen</button>
+    </div>
   </section>
 
   <details class="panel">
