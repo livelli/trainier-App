@@ -6,6 +6,9 @@ import { Sound, soundCue, SOUND_LABELS } from './sound.js';
 import { WorkoutPlayer } from './player.js';
 import { powerZone } from './zones.js';
 import { normalizeEntry, planDate, sortByPlan, defaultBriefing } from './plan.js';
+import { Recording } from './recorder.js';
+import { encodeFit, fitFileName } from './fit.js';
+import { saveRide, getRide, deleteRide, listRides } from './storage.js';
 import {
   parseIndoorBikeData, parseMachineFeature, parsePowerRange,
   parseHeartRate, parseCscMeasurement, CadenceCalculator, toHex,
@@ -408,6 +411,11 @@ function openRide(workout) {
     endArmedUntil: 0,
     cue: null,
     cadenceGoal: null,
+    rec: new Recording({ name: workout ? workout.name : 'Freie Fahrt', ftp, startedAt: Date.now() }),
+    savedSamples: 0,
+    nextSaveTry: 0,
+    saveWarn: false,
+    saveNote: '',
   };
   if (!workout) erg.setTarget(Math.round(ftp * 0.55));
   $('#setup-screen').hidden = true;
@@ -428,6 +436,9 @@ async function closeRide() {
   ride = null;
   sound.silence();
   if (r && r.player && r.player.state !== 'fertig') r.player.stop(Date.now());
+  // Zuerst speichern: Das Ausschalten von ERG kann ein paar Sekunden auf den Trainer warten.
+  if (r) await saveFinal(r);
+  if (r && r.saveFailed) alert(r.saveNote);
   if (erg.on) await erg.disable();
   $('#ride-screen').hidden = true;
   $('#setup-screen').hidden = false;
@@ -511,12 +522,14 @@ function finishRide() {
   ride.player.stop(Date.now());
   if (erg.on) erg.disable();
   log('Workout', `Beendet: ${ride.workout.name}`);
+  saveFinal(ride);
   renderRide();
   updateWakeLock();
 }
 
 setInterval(() => {
   tickRide();
+  recordTick();
   playCues();
   if (ride) renderRide();
 }, 250);
@@ -611,12 +624,174 @@ function renderRide() {
   if (state === 'fertig' || state === 'bereit') endBtn.textContent = 'Zurück';
   else endBtn.textContent = now < ride.endArmedUntil ? 'Wirklich beenden?' : (ride.player ? 'Workout beenden' : 'Fahrt beenden');
 
-  if (state === 'fertig') setAlert(`Workout geschafft! ${formatTime(ride.player.totalS)} gefahren. Speichern kommt in der nächsten Version.`, 'info');
+  if (state === 'fertig') setAlert(`Workout geschafft! ${formatTime(ride.player.totalS)} gefahren. ${ride.saveNote}`, 'info');
   else if (erg.error) setAlert(`Problem: ${erg.error}`);
+  else if (ride.saveWarn && state === 'läuft') setAlert('Zwischenspeichern klappt gerade nicht. Die Fahrt wird eventuell nicht gespeichert.');
   else if (state === 'läuft' && target !== null && !control.ready) setAlert('Trainer nicht verbunden: Das Watt-Ziel wird gerade nicht an den Trainer geschickt.');
   else if (state === 'läuft' && target !== null && control.ready && !ergSupported) setAlert('Dieser Trainer meldet keinen ERG-Modus.');
   else setAlert('');
 }
+
+// ---------- Aufzeichnung ----------
+
+const MIN_SAVE_S = 60; // Kürzere Fahrten (z. B. Tests) nicht speichern.
+const AUTOSAVE_S = 30;
+
+function currentValues(now) {
+  const v = (key) => {
+    const m = latest[key];
+    return m.value === null || now - m.at > STALE_MS ? null : Math.round(m.value * 10) / 10;
+  };
+  // Kadenz nur vom Sensor: Die Zahl des D100 ist geschätzt und stimmt nicht.
+  const p = v('power');
+  const hr = v('hr');
+  const cad = v('cad');
+  return {
+    p: p === null ? null : Math.round(p),
+    hr: hr === null ? null : Math.round(hr),
+    cad: cad === null ? null : Math.round(cad),
+    spd: v('speed'),
+    tgt: currentTargetW(now),
+  };
+}
+
+function recordTick() {
+  if (!ride || !ride.rec || ride.finished) return;
+  const now = Date.now();
+  ride.rec.tick(now, currentValues(now), rideRunning());
+  // Zwischendurch speichern, damit bei einem Absturz oder leerem Akku nicht alles weg ist.
+  const r = ride;
+  const n = r.rec.samples.length;
+  if (n >= MIN_SAVE_S && n - r.savedSamples >= AUTOSAVE_S && !r.saving && now >= r.nextSaveTry) {
+    r.saving = true;
+    saveRide(r.rec.toRecord(false))
+      .then(() => {
+        r.savedSamples = n;
+        r.saveWarn = false;
+      })
+      .catch((err) => {
+        // Nicht dauernd neu versuchen: kostet Rechenzeit und füllt das Protokoll.
+        r.nextSaveTry = Date.now() + 30000;
+        if (!r.saveWarn) log('Speichern', `Zwischenspeichern fehlgeschlagen: ${err.message}`);
+        r.saveWarn = true;
+      })
+      .finally(() => { r.saving = false; });
+  }
+}
+
+async function saveFinal(r) {
+  if (!r.rec || r.finalSaved) return;
+  r.finalSaved = true;
+  const n = r.rec.samples.length;
+  try {
+    if (n < MIN_SAVE_S) {
+      // Falls doch schon zwischengespeichert wurde, den Rest nicht liegen lassen.
+      if (r.savedSamples) await deleteRide(r.rec.id);
+      r.saveNote = 'Kürzer als eine Minute, darum nicht gespeichert.';
+    } else {
+      await saveRide(r.rec.toRecord(true));
+      r.saveNote = 'Gespeichert unter „Deine Fahrten“.';
+      log('Speichern', `Fahrt gespeichert: ${r.rec.name}, ${n} s`);
+    }
+  } catch (err) {
+    r.saveNote = `Speichern hat nicht geklappt: ${err.message}`;
+    r.saveFailed = true;
+    log('Speichern', `Fehler: ${err.message}`);
+  }
+  renderHistory();
+}
+
+// ---------- Deine Fahrten ----------
+
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
+function rideDate(ms) {
+  const d = new Date(ms);
+  const pad = (v) => String(v).padStart(2, '0');
+  return `${WD[d.getDay()]}, ${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} · ${pad(d.getHours())}:${pad(d.getMinutes())} Uhr`;
+}
+
+async function renderHistory() {
+  const list = $('#history-list');
+  let rides;
+  try {
+    rides = await listRides();
+  } catch (err) {
+    list.textContent = '';
+    const p = document.createElement('p');
+    p.className = 'sub';
+    p.textContent = `Gespeicherte Fahrten können in diesem Browser nicht gelesen werden (${err.message}).`;
+    list.append(p);
+    return;
+  }
+  list.textContent = '';
+  if (!rides.length) {
+    const p = document.createElement('p');
+    p.className = 'sub';
+    p.textContent = 'Noch keine Fahrten gespeichert. Jede Fahrt ab einer Minute landet automatisch hier.';
+    list.append(p);
+    return;
+  }
+  for (const r of rides) {
+    const s = r.summary;
+    const row = document.createElement('div');
+    row.className = 'history-row';
+    const info = document.createElement('div');
+    info.className = 'history-info';
+    const title = document.createElement('strong');
+    title.textContent = r.name;
+    const when = document.createElement('span');
+    when.className = 'sub';
+    when.textContent = rideDate(r.startedAt) + (r.complete ? '' : ' · unterbrochen, bis zum letzten Zwischenstand gespeichert');
+    const stats = document.createElement('span');
+    stats.className = 'history-stats';
+    const parts = s ? [formatTime(s.timerS)] : [];
+    if (s && s.avgPower !== null) parts.push(`Ø ${s.avgPower} W`);
+    if (s && s.np !== null) parts.push(`NP ${s.np} W`);
+    if (s && s.avgHr !== null) parts.push(`Ø ${s.avgHr} bpm`);
+    if (s && s.avgCad !== null) parts.push(`Ø ${s.avgCad} U/min`);
+    if (s && s.tss !== null) parts.push(`TSS ${s.tss}`);
+    stats.textContent = parts.join(' · ');
+    info.append(title, when, stats);
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    const fit = document.createElement('button');
+    fit.textContent = 'FIT-Datei herunterladen';
+    fit.addEventListener('click', () => downloadFit(r.id));
+    const del = document.createElement('button');
+    del.className = 'secondary';
+    del.textContent = 'Löschen';
+    del.addEventListener('click', async () => {
+      if (!confirm(`„${r.name}“ vom ${rideDate(r.startedAt)} wirklich löschen?`)) return;
+      try {
+        await deleteRide(r.id);
+      } catch (err) {
+        alert(`Löschen hat nicht geklappt: ${err.message}`);
+      }
+      renderHistory();
+    });
+    actions.append(fit, del);
+    row.append(info, actions);
+    list.append(row);
+  }
+}
+
+async function downloadFit(id) {
+  try {
+    const record = await getRide(id);
+    if (!record) throw new Error('Fahrt nicht gefunden.');
+    const blob = new Blob([encodeFit(record)], { type: 'application/octet-stream' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fitFileName(record);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (err) {
+    alert(`Die FIT-Datei konnte nicht erstellt werden: ${err.message}`);
+  }
+}
+
+renderHistory();
 
 // ---------- Bedienung ----------
 
@@ -823,6 +998,7 @@ const devices = {
         // Bluetooth-Pakete kommen auch in verdeckten Tabs zuverlässig, Timer werden dort gedrosselt:
         // so wechselt das Ziel trotzdem pünktlich.
         tickRide();
+        recordTick();
       });
 
       // Statusmeldungen des Trainers nur protokollieren (zeigt, was er mit unseren Befehlen macht).
