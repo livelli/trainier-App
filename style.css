@@ -222,6 +222,40 @@ details summary { cursor: pointer; font-weight: 600; }
 }
 .ride-alert.info { background: var(--ok); color: #05210f; }
 
+/* Einblendung vor jedem Intervall: wie es sich anfühlen soll. Klicks gehen durch, die Knöpfe bleiben bedienbar. */
+.preview {
+  position: fixed;
+  bottom: 96px; /* über dem Workout-Verlauf, Watt und Countdown bleiben sichtbar */
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px));
+  background: #0f1217;
+  border: 2px solid var(--pz, var(--accent));
+  border-radius: 16px;
+  padding: 18px 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: preview-in 0.25s ease-out;
+}
+.preview[hidden] { display: none; }
+@keyframes preview-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+.preview-head { color: var(--pz, var(--accent)); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 22px; text-transform: uppercase; letter-spacing: 0.04em; }
+.preview-feel { font-size: 28px; font-weight: 600; line-height: 1.25; }
+.preview-effort { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--soft); font-size: 18px; }
+.effort-dots { display: inline-flex; gap: 4px; }
+.effort-dots i { width: 16px; height: 16px; border-radius: 50%; background: var(--panel-2); }
+.effort-dots i.on { background: var(--pz, var(--accent)); }
+.preview-note { font-size: 20px; color: var(--text); border-top: 1px solid #3a434f; padding-top: 10px; }
+@media (max-width: 700px) {
+  /* Am Handy oben, damit die Knöpfe unten sichtbar bleiben. */
+  .preview { top: 12px; bottom: auto; padding: 14px 16px; }
+  .preview-feel { font-size: 22px; }
+}
+
 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .tile {
   background: var(--panel);

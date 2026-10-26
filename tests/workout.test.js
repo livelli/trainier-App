@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseZwo, totalDuration, formatTime } from '../js/workout.js';
+import { parseZwo, totalDuration, formatTime, segmentFeel, segmentEffort, previewFor } from '../js/workout.js';
 import { WorkoutPlayer } from '../js/player.js';
 import { powerZone } from '../js/zones.js';
 
@@ -26,7 +26,9 @@ test('ZWO einlesen', () => {
   assert.equal(w.name, 'Sweet Spot 3 & 8');
   // Warmup + 3×(on+off) + Steady + Free + Cooldown
   assert.equal(w.segments.length, 1 + 6 + 1 + 1 + 1);
-  assert.deepEqual(w.segments[0], { durationS: 600, startPct: 0.5, endPct: 0.75, free: false, label: 'Einfahren', cadence: null });
+  assert.deepEqual(w.segments[0], { durationS: 600, startPct: 0.5, endPct: 0.75, free: false, label: 'Einfahren', cadence: null, note: null });
+  assert.equal(w.segments[7].note, 'Locker bleiben');
+  assert.equal(w.segments[1].note, null);
   assert.equal(w.segments[1].label, 'Intervall 1 von 3');
   assert.equal(w.segments[1].startPct, 0.9);
   assert.equal(w.segments[2].label, 'Erholung');
@@ -130,4 +132,77 @@ test('Kadenz aus der Datei und als Empfehlung', async () => {
   assert.equal(formatCadence({ low: 85, high: 95 }), '85–95 U/min');
   assert.equal(formatCadence({ low: 70, high: 70 }), '70 U/min');
   assert.equal(parseZwo('<workout><SteadyState Duration="60" Power="0.5" Cadence="999"/></workout>').segments[0].cadence, null);
+});
+
+test('Hinweis aus textevent gilt für alle Intervalle, nicht für die Erholung', () => {
+  const w = parseZwo(`<workout_file><workout>
+    <IntervalsT Repeat="2" OnDuration="60" OffDuration="60" OnPower="1.1" OffPower="0.5">
+      <textevent timeoffset="0" message="Sitzen bleiben &amp; ruhig atmen"/>
+    </IntervalsT>
+    <SteadyState Duration="60" Power="0.6"/>
+  </workout></workout_file>`);
+  assert.equal(w.segments[0].note, 'Sitzen bleiben & ruhig atmen');
+  assert.equal(w.segments[2].note, 'Sitzen bleiben & ruhig atmen');
+  assert.equal(w.segments[1].note, undefined);
+  assert.equal(w.segments[4].note, null);
+});
+
+test('Gefühl nach Intensität', () => {
+  assert.match(segmentFeel({ startPct: 0.5, endPct: 0.5, label: 'Erholung' }), /Ganz locker/);
+  assert.match(segmentFeel({ startPct: 0.9, endPct: 0.9, label: 'Block' }), /Zügig/);
+  assert.match(segmentFeel({ startPct: 1.0, endPct: 1.0, label: 'Block' }), /Hart/);
+  assert.match(segmentFeel({ startPct: 0.5, endPct: 0.75, label: 'Einfahren' }), /^Wird stetig schwerer/);
+  assert.match(segmentFeel({ free: true }), /nach Gefühl/);
+});
+
+test('Einblendung: 10 s vorher bis 5 s danach, am Start 6 s', () => {
+  const seg = { durationS: 60 };
+  const next = { durationS: 120 };
+  // kurze Abschnitte bekommen keine Einblendung
+  assert.equal(previewFor({ state: 'läuft', index: 0, segment: seg, next: { durationS: 20 }, segElapsedS: 55, segRemainingS: 5 }), null);
+  assert.equal(previewFor({ state: 'läuft', index: 3, segment: { durationS: 20 }, next, segElapsedS: 2, segRemainingS: 18 }), null);
+  const st = (index, segElapsedS, extra = {}) => ({ state: 'läuft', index, segment: seg, next, segElapsedS, segRemainingS: 60 - segElapsedS, ...extra });
+  assert.equal(previewFor(st(0, 3)).mode, 'jetzt');
+  assert.equal(previewFor(st(0, 20)), null);
+  const p = previewFor(st(0, 51));
+  assert.equal(p.mode, 'gleich');
+  assert.equal(p.segment, next);
+  assert.equal(p.inS, 9);
+  assert.equal(previewFor(st(1, 4)).mode, 'jetzt');
+  assert.equal(previewFor(st(1, 6)), null);
+  assert.equal(previewFor(st(0, 55, { state: 'pause' })), null);
+  assert.equal(previewFor(st(0, 55, { next: null })), null);
+  assert.equal(previewFor(st(2, 5, { segment: { durationS: 10 } })), null);
+});
+
+test('Anstrengung 1 bis 10', () => {
+  assert.equal(segmentEffort({ startPct: 0.5, endPct: 0.5, label: 'Erholung' }).level, 2);
+  assert.equal(segmentEffort({ startPct: 0.65, endPct: 0.65, label: 'Block' }).level, 4);
+  assert.equal(segmentEffort({ startPct: 0.9, endPct: 0.9, label: 'Block' }).level, 6);
+  assert.equal(segmentEffort({ startPct: 1.0, endPct: 1.0, label: 'Block' }).level, 8);
+  assert.equal(segmentEffort({ startPct: 1.15, endPct: 1.15, label: 'Block' }).level, 9);
+  assert.equal(segmentEffort({ startPct: 1.5, endPct: 1.5, label: 'Block' }).level, 10);
+  assert.equal(segmentEffort({ free: true }), null);
+});
+
+test('Über-Unter: „Erholung“ mit 88 % ist nicht locker, Vollgas ist maximal', () => {
+  assert.equal(segmentEffort({ startPct: 0.88, endPct: 0.88, label: 'Erholung' }).level, 6);
+  assert.doesNotMatch(segmentFeel({ startPct: 0.88, endPct: 0.88, label: 'Erholung' }), /locker/);
+  const w = parseZwo('<workout_file><workout><MaxEffort Duration="20"/><SteadyState Duration="60" Power="0.5"/></workout></workout_file>');
+  assert.equal(segmentEffort(w.segments[0]).level, 10);
+  assert.match(segmentFeel(w.segments[0]), /Maximal/);
+});
+
+test('Hinweise: nur am Anfang, Zahlen-Entities, Gross/Klein, „/ >“', () => {
+  const w = parseZwo(`<workout_file><workout>
+    <steadystate Duration="600" Power="0.9">
+      <textevent timeoffset="0" message="Gr&#252;&#223;e"/>
+      <textevent timeoffset="300" message="Halbzeit"/>
+    </SteadyState>
+    <SteadyState Duration="60" Power="0.5"/ >
+    <SteadyState Duration="60" Power="0.6"><textevent timeoffset="0" message="B"/></SteadyState>
+  </workout></workout_file>`);
+  assert.equal(w.segments[0].note, 'Grüße');
+  assert.equal(w.segments[1].note, null);
+  assert.equal(w.segments[2].note, 'B');
 });

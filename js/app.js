@@ -1,7 +1,7 @@
 import { BleDevice, tryRead, readDeviceInfo } from './ble.js';
 import { FtmsControl } from './ftms.js';
 import { ErgController } from './erg.js';
-import { parseZwo, totalDuration, formatTime, cadenceTarget, formatCadence } from './workout.js';
+import { parseZwo, totalDuration, formatTime, cadenceTarget, formatCadence, segmentFeel, segmentEffort, previewFor } from './workout.js';
 import { Sound, soundCue, SOUND_LABELS } from './sound.js';
 import { WorkoutPlayer } from './player.js';
 import { powerZone } from './zones.js';
@@ -444,6 +444,8 @@ async function closeRide() {
   $('#ride-screen').hidden = true;
   $('#setup-screen').hidden = false;
   $('#ride-screen').classList.remove('done');
+  $('#r-preview').hidden = true;
+  previewKey = null;
   updateWakeLock();
 }
 
@@ -624,6 +626,8 @@ function renderRide() {
   const endBtn = $('#r-end');
   if (state === 'fertig' || state === 'bereit') endBtn.textContent = 'Zurück';
   else endBtn.textContent = now < ride.endArmedUntil ? 'Wirklich beenden?' : (ride.player ? 'Workout beenden' : 'Fahrt beenden');
+
+  renderPreview(ride.player ? ride.player.status(now) : null);
 
   if (state === 'fertig') setAlert(`Workout geschafft! ${formatTime(ride.player.totalS)} gefahren. ${ride.saveNote}`, 'info');
   else if (erg.error) setAlert(`Problem: ${erg.error}`);
@@ -934,6 +938,45 @@ $('#strava-disconnect').addEventListener('click', () => {
   }
   $('#strava-panel').scrollIntoView();
 })();
+
+// ---------- Einblendung vor jedem Intervall ----------
+
+let previewKey = null;
+
+function renderPreview(st) {
+  const box = $('#r-preview');
+  const p = previewFor(st);
+  if (!p) {
+    box.hidden = true;
+    previewKey = null;
+    return;
+  }
+  const s = p.segment;
+  $('#p-head').textContent = p.mode === 'gleich'
+    ? `In ${p.inS} s: ${s.label} · ${formatTime(s.durationS)}`
+    : `Jetzt: ${s.label} · ${formatTime(s.durationS)}`;
+  // Inhalt nur beim Wechsel neu aufbauen, damit die Einblendung nicht flackert.
+  const key = `${p.index}`;
+  if (key !== previewKey) {
+    previewKey = key;
+    const pct = s.free ? null : (s.startPct + s.endPct) / 2;
+    box.style.setProperty('--pz', pct === null ? '#4b5563' : zoneColor(pct));
+    $('#p-feel').textContent = segmentFeel(s);
+    const effort = segmentEffort(s);
+    const dots = $('#p-dots');
+    dots.textContent = '';
+    for (let i = 1; i <= 10; i++) {
+      const d = document.createElement('i');
+      if (effort && i <= effort.level) d.className = 'on';
+      dots.append(d);
+    }
+    dots.hidden = !effort;
+    $('#p-effort').textContent = effort ? `Anstrengung ${effort.level} von 10 · ${effort.word}` : 'Anstrengung nach Gefühl';
+    $('#p-note').textContent = s.note || '';
+    $('#p-note').hidden = !s.note;
+  }
+  box.hidden = false;
+}
 
 // ---------- Bedienung ----------
 
