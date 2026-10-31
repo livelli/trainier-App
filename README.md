@@ -12,7 +12,7 @@ Workouts liegen als Zwift-Dateien (`.zwo`) im Ordner `workouts/` und stehen in `
 
 ## Fahrwelt
 
-Hinter dem Fahrbildschirm kann eine gezeichnete Landschaft laufen (Einstellung „Fahrwelt“ im Startbildschirm, während der Fahrt Taste W oder Knopf „Welt aus/an“). Die Geschwindigkeit in der Welt wird aus Leistung, Gewicht (Fahrer + Rad) und Steigung berechnet; im Workout bleibt ERG führend, die Steigung ändert nicht den Widerstand. Drei erfundene Strecken liegen in `js/world/route.js`. Eigene Strecken als GPX-Datei werden nur im Browser gespeichert und gehören nicht ins Repository (sie verraten oft den Wohnort). Mit Fahrwelt wird die virtuelle Geschwindigkeit aufgezeichnet; Fahrten bleiben Indoor-Fahrten ohne GPS-Punkte.
+Hinter dem Fahrbildschirm kann eine gezeichnete Landschaft laufen (Einstellung „Fahrwelt“ im Startbildschirm, während der Fahrt Taste W oder Knopf „Welt aus/an“). Die Geschwindigkeit in der Welt wird aus Leistung, Gewicht (Fahrer + Rad) und Steigung berechnet; im Workout bleibt ERG führend, die Steigung ändert nicht den Widerstand. Standard ist eine realistische 3D-Welt (`js/world/render3d.js`, WebGL über three.js r160, mitgeliefert in `js/vendor/three/`, MIT-Lizenz); kann der Browser kein WebGL, zeigt die App die einfache Welt (`js/world/render.js`). Drei erfundene Strecken liegen in `js/world/route.js`. Eigene Strecken als GPX-Datei werden nur im Browser gespeichert und gehören nicht ins Repository (sie verraten oft den Wohnort). Mit Fahrwelt wird die virtuelle Geschwindigkeit aufgezeichnet; Fahrten bleiben Indoor-Fahrten ohne GPS-Punkte.
 
 ## Fahren
 

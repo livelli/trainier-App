@@ -389,6 +389,11 @@ let worldSettings = loadWorldSettings();
 let gpxSrc = loadGpx();
 const world = new World({
   canvas: $('#w-canvas'),
+  canvas3d: $('#w-canvas3d'),
+  onFallback: () => {
+    log('Fahrwelt', '3D nicht möglich, einfache Welt wird gezeigt');
+    setWorldStatus('Dein Browser konnte die 3D-Welt nicht anzeigen, darum läuft die einfache Welt. Ist in Chrome unter Einstellungen → System die Grafikbeschleunigung an?');
+  },
   mapCanvas: $('#w-map'),
   elevCanvas: $('#w-elevc'),
   els: { speed: $('#w-speed'), grade: $('#w-grade'), elev: $('#w-elev'), dist: $('#w-dist'), route: $('#w-route') },

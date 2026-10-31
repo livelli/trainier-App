@@ -9,9 +9,22 @@ import { drawWorld, drawMiniMap, drawElevation } from './render.js';
 const fmtKm = (m) => `${(m / 1000).toFixed(1).replace('.', ',')} km`;
 const fmtPct = (g) => `${g >= 0 ? '' : '−'}${Math.abs(g * 100).toFixed(1).replace('.', ',')} %`;
 
+// Die 3D-Technik (three.js, rund 700 KB) wird erst geladen, wenn sie gebraucht wird.
+let load3d = null;
+function loadRenderer3D() {
+  if (!load3d) load3d = import('./render3d.js').then((m) => m.Renderer3D);
+  return load3d;
+}
+
 export class World {
-  constructor({ canvas, mapCanvas, elevCanvas, els = {} }) {
+  constructor({ canvas, canvas3d, mapCanvas, elevCanvas, els = {}, onFallback }) {
     this.canvas = canvas;
+    this.canvas3d = canvas3d;
+    this.onFallback = onFallback;
+    this.r3 = null;
+    this.r3Quality = null;
+    this.r3Route = null;
+    this.no3d = false;
     this.mapCanvas = mapCanvas;
     this.elevCanvas = elevCanvas;
     this.els = els;
@@ -36,11 +49,60 @@ export class World {
     this.reset();
   }
 
+  get wants3d() {
+    return this.quality !== 'einfach' && !this.no3d && Boolean(this.canvas3d);
+  }
+
+  /** 3D vorbereiten (im Hintergrund); bis es bereit ist, zeichnet die einfache Welt. */
+  prepare3d() {
+    if (!this.wants3d || this.preparing) return;
+    const quality = this.quality;
+    if (this.r3 && this.r3Quality !== quality) {
+      this.r3.dispose();
+      this.r3 = null;
+      this.r3Route = null;
+    }
+    if (this.r3) {
+      this.attachRoute3d();
+      return;
+    }
+    this.preparing = true;
+    loadRenderer3D()
+      .then((Renderer3D) => {
+        if (!this.wants3d || this.quality !== quality) return;
+        this.r3 = new Renderer3D(this.canvas3d, quality);
+        this.r3Quality = quality;
+        this.attachRoute3d();
+      })
+      .catch((err) => this.fail3d(err))
+      .finally(() => { this.preparing = false; });
+  }
+
+  attachRoute3d() {
+    if (this.r3 && this.route && this.r3Route !== this.route) {
+      this.r3.setRoute(this.route);
+      this.r3Route = this.route;
+    }
+  }
+
+  fail3d(err) {
+    // Kein WebGL oder ein Fehler im 3D: dauerhaft auf die einfache Welt umschalten.
+    console.error('Fahrwelt 3D', err);
+    this.no3d = true;
+    if (this.r3) {
+      try { this.r3.dispose(); } catch { /* egal */ }
+    }
+    this.r3 = null;
+    this.r3Route = null;
+    if (this.onFallback) this.onFallback(err);
+  }
+
   /** Zeichnen an- und abschalten, ohne die Fahrt auf der Strecke zurückzusetzen. */
   show() {
     if (!this.route) return;
     this.visible = true;
     this.lastSide = 0;
+    this.prepare3d();
     if (!this.raf) this.raf = requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -93,8 +155,19 @@ export class World {
     this.raf = 0;
     if (!this.route || !this.visible) return;
     const d = this.viewDist();
+    const use3d = Boolean(this.r3 && this.r3Route === this.route && this.wants3d);
+    if (this.canvas3d) this.canvas3d.hidden = !use3d;
+    this.canvas.hidden = use3d;
     try {
-      drawWorld(this.canvas, this.route, d, this.quality);
+      if (use3d) {
+        try {
+          this.r3.render(d, { timeS: t / 1000, cadence: this.v > 1 ? 85 : 0 });
+        } catch (err) {
+          this.fail3d(err);
+        }
+      } else {
+        drawWorld(this.canvas, this.route, d, this.quality === 'einfach' ? 'hoch' : this.quality);
+      }
       // Karte, Profil und Zahlen ändern sich langsam: viermal pro Sekunde reicht.
       if (!this.lastSide || t - this.lastSide > 250) {
         this.lastSide = t;
