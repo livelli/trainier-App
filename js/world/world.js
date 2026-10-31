@@ -50,7 +50,7 @@ export class World {
   }
 
   get wants3d() {
-    return this.quality !== 'einfach' && !this.no3d && Boolean(this.canvas3d);
+    return !String(this.quality).startsWith('einfach') && !this.no3d && Boolean(this.canvas3d);
   }
 
   /** 3D vorbereiten (im Hintergrund); bis es bereit ist, zeichnet die einfache Welt. */
@@ -166,7 +166,7 @@ export class World {
           this.fail3d(err);
         }
       } else {
-        drawWorld(this.canvas, this.route, d, this.quality === 'einfach' ? 'hoch' : this.quality);
+        drawWorld(this.canvas, this.route, d, this.quality === 'einfach-niedrig' ? 'niedrig' : 'hoch');
       }
       // Karte, Profil und Zahlen ändern sich langsam: viermal pro Sekunde reicht.
       if (!this.lastSide || t - this.lastSide > 250) {
@@ -194,6 +194,7 @@ export class World {
     set('grade', fmtPct(this.grade));
     set('dist', fmtKm(d));
     set('elev', `${Math.round(at(r, 'elev', d))} m`);
-    set('route', `${r.name} · ${fmtKm(lapPos)} von ${fmtKm(r.length)}${lap > 1 ? ` · Runde ${lap}` : ''}`);
+    const note = this.no3d && !String(this.quality).startsWith('einfach') ? ' · einfache Ansicht, 3D geht hier nicht' : '';
+    set('route', `${r.name} · ${fmtKm(lapPos)} von ${fmtKm(r.length)}${lap > 1 ? ` · Runde ${lap}` : ''}${note}`);
   }
 }

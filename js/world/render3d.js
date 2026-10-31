@@ -322,7 +322,8 @@ export class Renderer3D {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const envScene = new THREE.Scene();
     envScene.add(sky.clone());
-    this.scene.environment = pmrem.fromScene(envScene, 0, 1, 10000).texture;
+    this.envRT = pmrem.fromScene(envScene, 0, 1, 10000);
+    this.scene.environment = this.envRT.texture;
     pmrem.dispose();
 
     const fogColor = new THREE.Color('#c5d6e4');
@@ -356,6 +357,8 @@ export class Renderer3D {
     this.disposeRoute();
     this.route = route;
     this.base = route.minE;
+    // Hin-und-zurück-Strecken: Straße nur einmal bauen (Rückweg liegt deckungsgleich darauf).
+    this.outN = route.loop ? route.n : Math.floor(route.n / 2) + 1;
     this.index = new RouteIndex(route);
     this.field = new DistanceField(route, this.index);
     this.sc = route.scenery || {};
@@ -376,11 +379,13 @@ export class Renderer3D {
     let base = f.e - this.base;
     let n = f.i >= 0 ? { i: f.i, d: di } : null;
     // Nahe der Straße genau rechnen, damit sie sauber im Gelände liegt.
-    if (di < 60) {
-      const exact = this.index.nearest(x, y, 1);
+    // Bei sehr langen Strecken ist das Raster grob: dann den Bereich entsprechend größer wählen.
+    const near = Math.max(60, this.field.cell * 2);
+    if (di < near) {
+      const exact = this.index.nearest(x, y, Math.ceil(near / this.index.cell) + 1);
       if (exact) {
         n = exact;
-        const blend = smooth(30, 60, di);
+        const blend = smooth(near * 0.5, near, di);
         di = exact.d * (1 - blend) + di * blend;
         base = (r.elev[exact.i] - this.base) * (1 - blend) + base * blend;
       }
@@ -406,14 +411,17 @@ export class Renderer3D {
   buildRoad() {
     const r = this.route;
     const n = r.n;
+    const loop = r.loop;
+    const last = loop ? n : this.outN - 1; // offene Strecke: kein Schluss zum Start
     const make = (inner, outer, yLift, tex, vScale) => {
-      const pos = new Float32Array((n + 1) * 4 * 3);
-      const uv = new Float32Array((n + 1) * 4 * 2);
+      const pos = new Float32Array((last + 1) * 4 * 3);
+      const uv = new Float32Array((last + 1) * 4 * 2);
       const idx = [];
-      for (let k = 0; k <= n; k++) {
+      for (let k = 0; k <= last; k++) {
         const i = k % n;
-        const j = (i + 1) % n;
-        const p = (i - 1 + n) % n;
+        // Richtung aus den Nachbarn; an den Enden einer offenen Strecke nur einseitig.
+        const j = loop ? (i + 1) % n : Math.min(i + 1, last);
+        const p = loop ? (i - 1 + n) % n : Math.max(i - 1, 0);
         let tx = r.x[j] - r.x[p];
         let ty = r.y[j] - r.y[p];
         const len = Math.hypot(tx, ty) || 1;
@@ -431,7 +439,7 @@ export class Renderer3D {
           uv[u] = (off[s] + outer) / (2 * outer);
           uv[u + 1] = (k * STEP) / vScale;
         }
-        if (k < n) {
+        if (k < last) {
           for (const [a, b] of inner ? [[0, 1], [2, 3]] : [[0, 1], [1, 2], [2, 3]]) {
             const v0 = k * 4 + a; const v1 = k * 4 + b; const v2 = (k + 1) * 4 + a; const v3 = (k + 1) * 4 + b;
             idx.push(v0, v1, v2, v1, v3, v2);
@@ -457,14 +465,14 @@ export class Renderer3D {
   buildPosts() {
     const r = this.route;
     const every = 5;
-    const count = Math.floor(r.n / every) * 2;
+    const count = Math.floor(this.outN / every) * 2 + 2;
     const geo = new THREE.BoxGeometry(0.12, 1.0, 0.12);
     geo.translate(0, 0.5, 0);
     const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.6 }), count);
     const band = new THREE.InstancedMesh(new THREE.BoxGeometry(0.13, 0.22, 0.13).translate(0, 0.8, 0), new THREE.MeshStandardMaterial({ color: '#1a1a1a' }), count);
     const m4 = new THREE.Matrix4();
     let c = 0;
-    for (let i = 0; i + every < r.n && c < count; i += every) {
+    for (let i = 0; i + 1 < this.outN && c < count; i += every) {
       const j = (i + 1) % r.n;
       const tx = r.x[j] - r.x[i];
       const ty = r.y[j] - r.y[i];
@@ -547,16 +555,9 @@ export class Renderer3D {
   }
 
   // Gelände und Bäume rund um den Fahrer (wird beim Weiterfahren neu gebaut).
-  buildChunk(cx, cy) {
-    if (this.terrain) {
-      this.group.remove(this.terrain);
-      this.terrain.geometry.dispose();
-    }
-    for (const t of this.trees) {
-      this.group.remove(t);
-      t.geometry.dispose();
-    }
-    this.trees = [];
+  // Gelände und Bäume als Arbeitspaket, das sich in kleine Stücke teilen lässt:
+  // So wird das nächste Stück Landschaft nebenbei gebaut und das Bild ruckelt nicht.
+  *chunkJob(cx, cy) {
     const size = this.q.terrainSize;
     const seg = this.q.terrainSeg;
     const geo = new THREE.PlaneGeometry(size, size, seg, seg);
@@ -578,6 +579,7 @@ export class Renderer3D {
       hs[i] = h;
       ds[i] = d;
       pos.setXYZ(i, x, h, z);
+      if (i % 1500 === 0) yield;
     }
     geo.computeVertexNormals();
     const nrm = geo.attributes.normal;
@@ -597,6 +599,7 @@ export class Renderer3D {
       if (hs[i] > snowLine) c.lerp(snow, smooth(snowLine, snowLine + 120, hs[i]) * (1 - smooth(0.3, 0.55, slope)));
       if (hs[i] < this.waterLevel + 0.6) c.lerp(new THREE.Color('#a8997a'), 0.7);
       colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+      if (i % 6000 === 0) yield;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     // Grastextur wiederholt sich alle 10 m
@@ -612,13 +615,39 @@ export class Renderer3D {
     };
     const terrain = new THREE.Mesh(geo, mat);
     terrain.receiveShadow = true;
-    this.terrain = terrain;
-    this.group.add(terrain);
-    this.plantTrees(cx, cy, size);
-    this.center = { x: cx, y: cy };
+    const trees = yield* this.plantTrees(cx, cy, size);
+    return { terrain, trees, center: { x: cx, y: cy } };
   }
 
-  plantTrees(cx, cy, size) {
+  /** Fertiges Stück Landschaft einsetzen, das alte freigeben. */
+  swapChunk(res) {
+    this.disposeChunk();
+    this.terrain = res.terrain;
+    this.trees = res.trees;
+    this.group.add(res.terrain, ...res.trees);
+    this.center = res.center;
+  }
+
+  disposeChunk() {
+    for (const o of [this.terrain, ...this.trees]) {
+      if (!o) continue;
+      if (this.group) this.group.remove(o);
+      o.geometry.dispose();
+      o.material.dispose();
+      if (o.dispose) o.dispose(); // InstancedMesh: Instanz-Puffer
+    }
+    this.terrain = null;
+    this.trees = [];
+  }
+
+  buildChunkNow(cx, cy) {
+    const job = this.chunkJob(cx, cy);
+    let r = job.next();
+    while (!r.done) r = job.next();
+    this.swapChunk(r.value);
+  }
+
+  *plantTrees(cx, cy, size) {
     const density = (this.sc.trees ?? 0.6) * this.q.trees;
     const conifer = [];
     const broad = [];
@@ -629,6 +658,7 @@ export class Renderer3D {
     const y0 = Math.floor((cy - half) / step);
     const y1 = Math.floor((cy + half) / step);
     for (let gx = x0; gx <= x1; gx++) {
+      yield;
       for (let gy = y0; gy <= y1; gy++) {
         const r = hash2(gx, gy);
         const x = gx * step + (hash2(gx + 91, gy) - 0.5) * step;
@@ -647,16 +677,17 @@ export class Renderer3D {
         (hash2(gx * 13, gy * 17) < (this.sc.snow ? 0.8 : 0.45) ? conifer : broad).push([x, h, y, s, rot]);
       }
     }
-    this.trees.push(...this.makeConifers(conifer), ...this.makeBroadleaf(broad), ...this.makeTufts(cx, cy));
-    for (const t of this.trees) this.group.add(t);
+    const tufts = yield* this.makeTufts(cx, cy);
+    return [...this.makeConifers(conifer), ...this.makeBroadleaf(broad), ...tufts];
   }
 
   // Grasbüschel am Straßenrand: kleine gekreuzte Flächen mit Halm-Muster.
-  makeTufts(cx, cy) {
+  *makeTufts(cx, cy) {
     const r = this.route;
     const list = [];
     const R = 380;
-    for (let i = 0; i < r.n; i++) {
+    for (let i = 0; i < this.outN; i++) {
+      if (i % 200 === 0) yield;
       if (Math.abs(r.x[i] - cx) > R || Math.abs(r.y[i] - cy) > R) continue;
       const j = (i + 1) % r.n;
       const tx = r.x[j] - r.x[i];
@@ -791,11 +822,36 @@ export class Renderer3D {
     const py = at(r, 'y', dist);
     // x/y springen am Rundenende nicht, weil die Runde geschlossen ist.
     const pe = at(r, 'elev', dist) - this.base;
-    if (!this.center || Math.hypot(px - this.center.x, py - this.center.y) > REBUILD_M) {
-      this.buildChunk(Math.round(px / 50) * 50, Math.round(py / 50) * 50);
+    const snap = (v) => Math.round(v / 50) * 50;
+    const away = this.center ? Math.hypot(px - this.center.x, py - this.center.y) : Infinity;
+    if (away > this.q.terrainSize / 2 - 250) {
+      // Zu weit (Start, Sprung): sofort bauen.
+      this.job = null;
+      this.buildChunkNow(snap(px), snap(py));
+    } else {
+      if (!this.job && away > REBUILD_M * 0.5) {
+        // Nächstes Stück dort bauen, wo man in gut einer Minute ist.
+        const ax = at(r, 'x', dist + REBUILD_M);
+        const ay = at(r, 'y', dist + REBUILD_M);
+        this.job = this.chunkJob(snap(ax), snap(ay));
+      }
+      if (this.job) {
+        const t0 = performance.now();
+        let res = this.job.next();
+        while (!res.done && performance.now() - t0 < 6) res = this.job.next();
+        if (res.done) {
+          this.job = null;
+          this.swapChunk(res.value);
+        }
+      }
     }
     const bob = cadence > 0 ? Math.sin(timeS * (cadence / 60) * Math.PI * 2) * 0.012 : 0;
-    this.camera.position.set(px, pe + 1.55 + bob, py);
+    // Gleitender Nullpunkt: Weit vom Start entfernt (große Zahlen) würde die Grafikkarte
+    // ungenau rechnen und Teile der Straße verlieren. Darum liegt der Nullpunkt beim Fahrer.
+    const ox = this.center ? this.center.x : px;
+    const oy = this.center ? this.center.y : py;
+    this.scene.position.set(-ox, 0, -oy);
+    this.camera.position.set(px - ox, pe + 1.55 + bob, py - oy);
     const ahead = 22;
     const tx = at(r, 'x', dist + ahead);
     const ty = at(r, 'y', dist + ahead);
@@ -804,38 +860,52 @@ export class Renderer3D {
     // Blick weich nachführen, sonst ruckelt es in Kurven
     if (this.lookAhead.lengthSq() === 0 || this.lookAhead.distanceTo(target) > 60) this.lookAhead.copy(target);
     else this.lookAhead.lerp(target, 0.12);
-    this.camera.lookAt(this.lookAhead);
+    this.camera.lookAt(this.lookAhead.x - ox, this.lookAhead.y, this.lookAhead.z - oy);
 
     // Sonne und Schatten folgen dem Fahrer
     this.sun.position.set(px + this.sunDir.x * 300, pe + this.sunDir.y * 300, py + this.sunDir.z * 300);
     this.sun.target.position.set(px, pe, py);
     this.ridge.position.set(px, pe * 0.3, py);
     this.clouds.position.set(px, 1400, py);
+    this.sky.position.set(px, pe, py);
     this.tex.cloud.offset.set(timeS * 0.0008, timeS * 0.0003);
     if (this.water) this.water.position.set(px, this.waterLevel, py);
     this.renderer.render(this.scene, this.camera);
   }
 
   disposeRoute() {
-    if (!this.group) return;
-    this.scene.remove(this.group);
-    this.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material && o.material.dispose) o.material.dispose();
-    });
+    this.job = null;
+    this.disposeChunk();
+    if (this.group) {
+      this.scene.remove(this.group);
+      this.group.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material && o.material.dispose) o.material.dispose();
+        if (o.isInstancedMesh) o.dispose();
+      });
+    }
     if (this.ridge) {
       this.scene.remove(this.ridge);
       this.ridge.geometry.dispose();
+      this.ridge.material.dispose();
     }
     this.group = null;
-    this.terrain = null;
-    this.trees = [];
+    this.ridge = null;
     this.water = null;
+    this.center = null;
   }
 
   dispose() {
     this.disposeRoute();
+    for (const o of [this.sky, this.clouds]) {
+      o.geometry.dispose();
+      o.material.dispose();
+    }
+    if (this.envRT) this.envRT.dispose();
+    this.sun.shadow.dispose();
     for (const t of Object.values(this.tex)) t.dispose();
+    // Kein forceContextLoss: Ein neuer Renderer auf derselben Leinwand (Qualitätswechsel)
+    // bekommt sonst kein WebGL mehr.
     this.renderer.dispose();
   }
 }

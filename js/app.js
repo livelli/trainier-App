@@ -362,7 +362,9 @@ function loadWorldSettings() {
   const d = { on: true, routeId: 'alpenpass', quality: 'hoch', riderKg: DEFAULT_RIDER_KG, bikeKg: DEFAULT_BIKE_KG };
   try {
     const s = JSON.parse(localStorage.getItem(WORLD_KEY) || '{}');
-    return { ...d, ...s };
+    // Vor der 3D-Welt hieß die schonende einfache Welt „niedrig“.
+    if (!s.v && s.quality === 'niedrig') s.quality = 'einfach-niedrig';
+    return { ...d, ...s, v: 2 };
   } catch {
     return d;
   }
