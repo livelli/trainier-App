@@ -86,8 +86,27 @@
 
   <section class="panel">
     <h2>Deine Fahrten</h2>
-    <p class="sub">Jede Fahrt wird automatisch gespeichert, nur hier in diesem Browser. Mit Strava verbunden, gehen sie automatisch dorthin. Für iGPSPORT die FIT-Datei herunterladen und dort hochladen.</p>
+    <p class="sub">Jede Fahrt wird automatisch gespeichert, nur hier in diesem Browser. Mit Strava verbunden, gehen sie automatisch dorthin. Für iGPSPORT die FIT-Datei herunterladen und dort hochladen. Mit einem Ordner für Claude liegen sie zusätzlich dort.</p>
     <div id="history-list" class="history-list"><p class="sub">Lade Fahrten …</p></div>
+  </section>
+
+  <section class="panel" id="folder-panel">
+    <h2>Ordner für Claude</h2>
+    <p class="sub">Jede Fahrt landet zusätzlich als FIT- und JSON-Datei in einem Ordner auf diesem Laptop. Von dort kann Claude sie lesen. Die Dateien bleiben auf deinem Laptop.</p>
+    <p id="folder-msg" class="strava-msg" hidden></p>
+    <div id="folder-none">
+      <button id="folder-choose">Ordner auswählen</button>
+      <p class="sub">Tipp: In „Dokumente“ einen neuen Ordner „Trainer-Fahrten“ anlegen und den wählen. Fragt Chrome nach, „Bei jedem Besuch erlauben“ anklicken.</p>
+    </div>
+    <div id="folder-set" hidden>
+      <p id="folder-status"></p>
+      <div class="card-actions">
+        <button id="folder-sync" hidden>Fehlende Fahrten jetzt speichern</button>
+        <button id="folder-change" class="secondary">Anderen Ordner wählen</button>
+        <button id="folder-forget" class="secondary">Nicht mehr in Ordner speichern</button>
+      </div>
+    </div>
+    <p id="folder-unsupported" class="sub" hidden>Dieser Browser kann nicht in einen Ordner speichern. Bitte die App in Chrome oder Edge öffnen.</p>
   </section>
 
   <section class="panel" id="strava-panel">

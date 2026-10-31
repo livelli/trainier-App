@@ -10,6 +10,7 @@ import { Recording } from './recorder.js';
 import { encodeFit, fitFileName } from './fit.js';
 import { saveRide, getRide, deleteRide, listRides } from './storage.js';
 import * as strava from './strava.js';
+import * as folder from './folder.js';
 import {
   parseIndoorBikeData, parseMachineFeature, parsePowerRange,
   parseHeartRate, parseCscMeasurement, CadenceCalculator, toHex,
@@ -419,6 +420,8 @@ function openRide(workout) {
     saveNote: '',
   };
   if (!workout) erg.setTarget(Math.round(ftp * 0.55));
+  // Ordner-Freigabe jetzt im Klick holen, beim automatischen Speichern am Ende geht das nicht mehr.
+  folder.permission(true).then(() => renderFolder()).catch(() => {});
   $('#setup-screen').hidden = true;
   $('#ride-screen').hidden = false;
   $('#r-name').textContent = workout ? workout.name : 'Freie Fahrt';
@@ -688,6 +691,7 @@ async function saveFinal(r) {
   if (!r.rec || r.finalSaved) return;
   r.finalSaved = true;
   const n = r.rec.samples.length;
+  finishingId = r.rec.id;
   try {
     if (n < MIN_SAVE_S) {
       // Falls doch schon zwischengespeichert wurde, den Rest nicht liegen lassen.
@@ -695,6 +699,7 @@ async function saveFinal(r) {
       r.saveNote = 'Kürzer als eine Minute, darum nicht gespeichert.';
     } else {
       await saveRide(r.rec.toRecord(true));
+      finishingId = null;
       r.saveNote = 'Gespeichert unter „Deine Fahrten“.';
       log('Speichern', `Fahrt gespeichert: ${r.rec.name}, ${n} s`);
       const st = strava.loadSettings();
@@ -702,12 +707,14 @@ async function saveFinal(r) {
         r.saveNote = 'Gespeichert und wird zu Strava hochgeladen.';
         uploadToStrava(r.rec.id); // nicht abwarten, das Beenden soll nicht hängen
       }
+      syncFolder(); // ebenso nicht abwarten
     }
   } catch (err) {
     r.saveNote = `Speichern hat nicht geklappt: ${err.message}`;
     r.saveFailed = true;
     log('Speichern', `Fehler: ${err.message}`);
   }
+  finishingId = null;
   renderHistory();
 }
 
@@ -806,6 +813,7 @@ async function renderHistory() {
         alert(`Löschen hat nicht geklappt: ${err.message}`);
       }
       renderHistory();
+      renderFolder();
     });
     actions.append(fit, del);
     row.append(info, actions);
@@ -829,6 +837,109 @@ async function downloadFit(id) {
 }
 
 renderHistory();
+
+// ---------- Ordner für Claude ----------
+
+let folderChain = Promise.resolve();
+
+// Die laufende Fahrt erst in den Ordner, wenn sie fertig gespeichert ist.
+// finishingId: Fahrt, deren letztes Speichern gerade läuft (sonst landet der Zwischenstand im Ordner).
+let finishingId = null;
+const isLiveRide = (id) => id === finishingId || Boolean(ride && ride.rec && ride.rec.id === id && !ride.finalSaved);
+
+// Alle fertigen Fahrten, die noch nicht im Ordner liegen, hineinschreiben. Nie zwei Läufe gleichzeitig.
+function syncFolder(ask = false) {
+  const runSync = async () => {
+    if (!folder.folderName()) return null;
+    const rides = await listRides();
+    const ids = rides.filter((r) => !isLiveRide(r.id)).map((r) => r.id);
+    const res = await folder.sync({
+      ids,
+      getFull: getRide,
+      encode: encodeFit,
+      fileBase: (rec) => fitFileName(rec).replace(/\.fit$/, ''),
+      ask,
+    });
+    if (res.written) log('Ordner', `${res.written} Fahrt(en) in „${folder.folderName()}“ gespeichert`);
+    if (res.failed) log('Ordner', `${res.failed} Fahrt(en) nicht gespeichert: ${res.lastError && res.lastError.message}`);
+    return res;
+  };
+  const p = folderChain.then(runSync, runSync);
+  folderChain = p.catch(() => {});
+  return p
+    .then((res) => {
+      const parts = [];
+      if (res && res.written) parts.push(`${res.written === 1 ? 'Eine Fahrt' : `${res.written} Fahrten`} im Ordner gespeichert.`);
+      if (res && res.failed) parts.push(`${res.failed === 1 ? 'Eine Fahrt konnte' : `${res.failed} Fahrten konnten`} nicht in den Ordner geschrieben werden. Ist der Ordner noch da und nicht schreibgeschützt?`);
+      return renderFolder(parts.join(' '));
+    })
+    .catch((err) => {
+      log('Ordner', `Speichern fehlgeschlagen: ${err.message}`);
+      return renderFolder('Speichern im Ordner hat nicht geklappt. Ist der Ordner noch da? Sonst bitte „Anderen Ordner wählen“.');
+    });
+}
+
+async function renderFolder(message = '') {
+  $('#folder-msg').textContent = message;
+  $('#folder-msg').hidden = !message;
+  if (!folder.supported()) {
+    $('#folder-unsupported').hidden = false;
+    $('#folder-none').hidden = true;
+    $('#folder-set').hidden = true;
+    return;
+  }
+  const name = folder.folderName();
+  $('#folder-none').hidden = Boolean(name);
+  $('#folder-set').hidden = !name;
+  if (!name) return;
+  let perm = 'prompt';
+  let missing = 0;
+  try {
+    perm = await folder.permission(false);
+    const rides = await listRides();
+    missing = await folder.missingCount(rides.filter((r) => !isLiveRide(r.id)).map((r) => r.id));
+  } catch {
+    // Anzeige trotzdem aufbauen
+  }
+  let text = `Speichert in „${name}“.`;
+  if (perm === 'denied') text += ' Chrome hat den Zugriff gesperrt. Bitte den Ordner neu wählen.';
+  else if (missing) text += ` ${missing === 1 ? 'Eine Fahrt fehlt' : `${missing} Fahrten fehlen`} dort noch.`;
+  else if (perm !== 'granted') text += ' Chrome fragt beim nächsten Start einer Fahrt nach der Erlaubnis.';
+  else text += ' Alles da.';
+  $('#folder-status').textContent = text;
+  $('#folder-sync').hidden = !missing || perm === 'denied';
+}
+
+async function chooseFolder() {
+  try {
+    await folder.choose();
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // Auswahl abgebrochen
+    log('Ordner', `Auswahl fehlgeschlagen: ${err && err.message}`);
+    await renderFolder('Diesen Ordner lässt Chrome nicht zu (z. B. Systemordner). Bitte einen eigenen Ordner, etwa in „Dokumente“, wählen.');
+    return;
+  }
+  log('Ordner', `Gewählt: ${folder.folderName()}`);
+  syncFolder(true);
+}
+
+$('#folder-choose').addEventListener('click', chooseFolder);
+$('#folder-change').addEventListener('click', chooseFolder);
+$('#folder-sync').addEventListener('click', async () => {
+  // Erlaubnis sofort im Klick holen, bevor irgendetwas anderes wartet.
+  await folder.permission(true).catch(() => {});
+  syncFolder(true);
+});
+$('#folder-forget').addEventListener('click', async () => {
+  if (!confirm('Fahrten nicht mehr in den Ordner speichern? Die Dateien, die schon dort liegen, bleiben.')) return;
+  await folder.forget().catch(() => {});
+  await renderFolder('Es wird nicht mehr in einen Ordner gespeichert.');
+});
+
+folder.load()
+  .catch(() => null)
+  .then(() => renderFolder())
+  .then(() => syncFolder());
 
 // ---------- Strava ----------
 
