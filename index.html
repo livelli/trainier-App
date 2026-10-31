@@ -65,6 +65,34 @@
     </form>
   </section>
 
+  <section class="panel" id="world-panel">
+    <h2>Fahrwelt</h2>
+    <p class="sub">Eine Landschaft hinter deinen Werten, damit die Fahrt weniger langweilig wird. Im Workout bleibt ERG führend: Ein Berg macht dich in der Welt langsamer, aber nicht schwerer.</p>
+    <div class="world-form">
+      <label class="option"><input type="checkbox" id="world-on"> Fahrwelt beim Fahren zeigen</label>
+      <label>Strecke
+        <select id="world-route"></select>
+      </label>
+      <label>Bildqualität
+        <select id="world-quality">
+          <option value="hoch">hoch</option>
+          <option value="niedrig">niedrig (falls es ruckelt)</option>
+        </select>
+      </label>
+      <label>Dein Gewicht in kg <input id="world-rider" type="number" inputmode="decimal" min="30" max="200" step="0.5"></label>
+      <label>Rad in kg <input id="world-bike" type="number" inputmode="decimal" min="3" max="30" step="0.5"></label>
+    </div>
+    <p id="world-route-info" class="sub"></p>
+    <div class="workout-extra">
+      <label class="file-button secondary">
+        Eigene Strecke (.gpx) öffnen
+        <input id="world-gpx" type="file" accept=".gpx,application/gpx+xml">
+      </label>
+    </div>
+    <p class="sub">Eine eigene Strecke bleibt nur hier in diesem Browser auf deinem Laptop. GPX-Dateien bekommst du z. B. aus Komoot oder Strava (Strecke → Exportieren). Gewicht und Steigung bestimmen nur die Geschwindigkeit in der Welt.</p>
+    <p id="world-status" class="sub" hidden></p>
+  </section>
+
   <section class="panel dash-link">
     <h2>Dein Trainingsstand</h2>
     <p class="sub">Wochenstunden, Zonen, Bestwerte und meine Einschätzung. Privat, nur mit deinem Claude-Konto sichtbar.</p>
@@ -161,6 +189,19 @@
   </div>
 </dialog>
 
+<div id="world" class="world" hidden aria-hidden="true">
+  <canvas id="w-canvas" class="world-canvas"></canvas>
+  <div class="world-side">
+    <canvas id="w-map" class="world-map"></canvas>
+    <div class="world-box">
+      <div class="world-row"><span>km/h</span><b id="w-speed">–</b></div>
+      <div class="world-row"><span>Steigung</span><b id="w-grade">–</b></div>
+      <div class="world-row"><span>Höhe</span><b id="w-elev">–</b></div>
+      <div class="world-row"><span>Distanz</span><b id="w-dist">–</b></div>
+    </div>
+  </div>
+</div>
+
 <div id="ride-screen" class="ride" hidden>
   <div class="ride-top">
     <div class="ride-title">
@@ -215,11 +256,18 @@
     </div>
   </div>
 
+  <div class="ride-bottom">
+  <div class="world-elev" id="w-elev-box" hidden>
+    <span class="tile-label" id="w-route">Strecke</span>
+    <canvas id="w-elevc"></canvas>
+  </div>
+
   <div class="profile" id="r-profile-box">
     <span class="tile-label">Workout-Verlauf</span>
     <div class="profile-bars" id="r-profile">
       <div class="profile-marker" id="r-marker"></div>
     </div>
+  </div>
   </div>
 
   <div class="ride-buttons">
@@ -230,10 +278,11 @@
     <button id="r-skip">Abschnitt überspringen</button>
     <span class="spacer"></span>
     <span id="r-adjust" class="ride-sub"></span>
+    <button id="r-world" class="sound-btn" aria-pressed="false">Welt</button>
     <button id="r-sound" class="sound-btn">Ton</button>
     <button id="r-end">Workout beenden</button>
   </div>
-  <p class="ride-keys">Tastatur: Leertaste = Start/Pause/Weiter, Pfeil hoch/runter = ±10 W, Bild runter = −10 %, Esc = beenden</p>
+  <p class="ride-keys">Tastatur: Leertaste = Start/Pause/Weiter, Pfeil hoch/runter = ±10 W, Bild runter = −10 %, W = Welt an/aus, Esc = beenden</p>
 </div>
 
 <script type="module" src="js/app.js"></script>

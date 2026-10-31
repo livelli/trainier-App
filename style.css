@@ -357,3 +357,84 @@ details summary { cursor: pointer; font-weight: 600; }
 .strava-msg { background: var(--panel-2); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
 .history-strava { font-size: 0.9rem; color: var(--soft); }
 .history-strava.fehler { color: #f97316; }
+
+/* ---------- Fahrwelt (Welt 1: Alpenpass 3D) ---------- */
+
+.world-form { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; margin: 10px 0; }
+.world-form label:not(.option) { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 0.9rem; }
+.world-form select, .world-form input[type="number"] {
+  background: var(--panel-2); color: var(--text); border: 1px solid #3a434f; border-radius: 6px;
+  padding: 8px 10px; font: inherit; max-width: 100%;
+}
+.world-form input[type="number"] { width: 7rem; }
+#world-status { color: var(--warn); }
+
+/* Die Welt liegt fest hinter dem Fahrbildschirm. */
+.world { position: fixed; inset: 0; z-index: 0; background: #8cc6ee; }
+.world-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.world-side {
+  position: absolute; right: 18px; top: 96px;
+  width: 210px; display: flex; flex-direction: column; gap: 10px;
+}
+.world-map { width: 210px; height: 170px; background: rgba(12, 16, 21, 0.72); border-radius: 12px; display: block; }
+.world-box { background: rgba(12, 16, 21, 0.72); border-radius: 12px; padding: 10px 14px; display: grid; gap: 4px; }
+.world-row { display: flex; justify-content: space-between; gap: 10px; color: #fff; font-size: 17px; }
+.world-row span { color: rgba(255, 255, 255, 0.75); }
+.world-row b {
+  font-family: "Barlow Condensed", sans-serif; font-size: 26px; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fahrbildschirm über der Welt: Werte oben als halbdurchsichtige Leiste, Verlauf und Knöpfe unten. */
+.ride.world-on { position: relative; z-index: 1; padding: 14px 18px; gap: 10px; }
+.ride.world-on .ride-top,
+.ride.world-on .tiles .tile,
+.ride.world-on .interval,
+.ride.world-on .world-elev,
+.ride.world-on .profile,
+.ride.world-on .ride-buttons {
+  background: rgba(12, 16, 21, 0.74);
+  border-radius: 12px;
+}
+.ride.world-on .ride-top { padding: 6px 14px; align-self: stretch; }
+.ride.world-on .ride-name { font-size: 20px; }
+.ride.world-on .ride-sub { font-size: 15px; color: #c9d1da; }
+.ride.world-on .tiles {
+  width: min(820px, 100%); margin: 0 auto; gap: 8px;
+}
+.ride.world-on .tile { padding: 4px 16px 6px; border-top-width: 5px; }
+.ride.world-on .tile-label { line-height: 1.2; }
+.ride.world-on .tile-label { font-size: 16px; color: #c9d1da; }
+.ride.world-on .tile-value { font-size: clamp(56px, min(6.6vw, 11.5vh), 110px); }
+.ride.world-on .tile-sub { font-size: 20px; color: #fff; }
+.ride.world-on .interval {
+  width: min(820px, 100%); margin: 0 auto auto; padding: 8px 18px; gap: 20px;
+}
+.ride.world-on .countdown { font-size: clamp(48px, min(5vw, 9vh), 72px); }
+.ride.world-on .interval-label { color: #c9d1da; font-size: 16px; }
+.ride.world-on .interval-next { font-size: 19px; }
+.ride.world-on .world-elev { padding: 6px 14px 8px; display: flex; flex-direction: column; gap: 4px; }
+.ride.world-on .world-elev[hidden] { display: none; }
+.world-elev canvas { width: 100%; height: 44px; display: block; }
+/* Ohne Welt verhält sich der Block, als gäbe es ihn nicht. */
+.ride-bottom { display: contents; }
+.ride.world-on .ride-bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.ride.world-on .ride-bottom > :only-child,
+.ride.world-on .ride-bottom > [hidden] + * { grid-column: 1 / -1; }
+.ride.world-on .profile { flex: 0 0 auto; min-height: 0; padding: 6px 14px 8px; }
+.ride.world-on .profile-bars { min-height: 44px; height: 44px; }
+.ride.world-on .ride-buttons { padding: 8px; gap: 8px; }
+.ride.world-on .ride-buttons button { height: 48px; font-size: 18px; padding: 0 18px; }
+.ride.world-on .ride-keys { color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); font-size: 14px; }
+.ride.world-on .ride-alert { width: min(820px, 100%); margin: 0 auto; }
+/* Rechts ist Platz für Karte und Nebenwerte; ist der Bildschirm schmal, bleiben sie weg. */
+@media (max-width: 1250px) {
+  .world-side { display: none; }
+}
+@media (max-width: 700px) {
+  .ride.world-on .ride-bottom { grid-template-columns: minmax(0, 1fr); }
+  .ride.world-on .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ride.world-on .tile { padding: 6px 10px; }
+  .ride.world-on .tile-value { font-size: 40px; }
+}
+.ride.world-on .ride-bottom:has(> [hidden]) { grid-template-columns: minmax(0, 1fr); }

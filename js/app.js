@@ -11,6 +11,9 @@ import { encodeFit, fitFileName } from './fit.js';
 import { saveRide, getRide, deleteRide, listRides } from './storage.js';
 import * as strava from './strava.js';
 import * as folder from './folder.js';
+import { World } from './world/world.js';
+import { BUILTIN_ROUTES, builtinRoute, gpxSource, routeFromSource } from './world/route.js';
+import { DEFAULT_RIDER_KG, DEFAULT_BIKE_KG } from './world/physics.js';
 import {
   parseIndoorBikeData, parseMachineFeature, parsePowerRange,
   parseHeartRate, parseCscMeasurement, CadenceCalculator, toHex,
@@ -350,6 +353,185 @@ $('#free-ride').addEventListener('click', () => openRide(null));
 let ride = null; // { workout, player, freeStartedAt, freeElapsedMs, endArmedUntil }
 let profileBars = [];
 
+// ---------- Fahrwelt ----------
+
+const WORLD_KEY = 'trainerApp.world';
+const WORLD_GPX_KEY = 'trainerApp.worldGpx';
+
+function loadWorldSettings() {
+  const d = { on: true, routeId: 'alpenpass', quality: 'hoch', riderKg: DEFAULT_RIDER_KG, bikeKg: DEFAULT_BIKE_KG };
+  try {
+    const s = JSON.parse(localStorage.getItem(WORLD_KEY) || '{}');
+    return { ...d, ...s };
+  } catch {
+    return d;
+  }
+}
+
+function saveWorldSettings() {
+  try {
+    localStorage.setItem(WORLD_KEY, JSON.stringify(worldSettings));
+  } catch {
+    // Ohne Speicher gilt die Einstellung nur bis zum Neuladen.
+  }
+}
+
+function loadGpx() {
+  try {
+    const s = localStorage.getItem(WORLD_GPX_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch {
+    return null;
+  }
+}
+
+let worldSettings = loadWorldSettings();
+let gpxSrc = loadGpx();
+const world = new World({
+  canvas: $('#w-canvas'),
+  mapCanvas: $('#w-map'),
+  elevCanvas: $('#w-elevc'),
+  els: { speed: $('#w-speed'), grade: $('#w-grade'), elev: $('#w-elev'), dist: $('#w-dist'), route: $('#w-route') },
+});
+
+function currentRoute() {
+  if (worldSettings.routeId === 'gpx' && gpxSrc) {
+    try {
+      return routeFromSource(gpxSrc);
+    } catch (err) {
+      log('Fahrwelt', `Eigene Strecke unbrauchbar: ${err.message}`);
+      setWorldStatus('Die gespeicherte eigene Strecke ist beschädigt, darum gilt der Alpenpass. Bitte die GPX-Datei neu öffnen.');
+    }
+  }
+  return builtinRoute(worldSettings.routeId === 'gpx' ? 'alpenpass' : worldSettings.routeId);
+}
+
+function worldMassKg() {
+  const r = Number(worldSettings.riderKg);
+  const b = Number(worldSettings.bikeKg);
+  return (r >= 30 && r <= 200 ? r : DEFAULT_RIDER_KG) + (b >= 3 && b <= 30 ? b : DEFAULT_BIKE_KG);
+}
+
+function setWorldStatus(text) {
+  const el = $('#world-status');
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+function renderWorldPanel() {
+  const sel = $('#world-route');
+  const opts = BUILTIN_ROUTES.map((r) => `<option value="${r.id}">${escapeHtml(r.name)} (${r.length / 1000} km)</option>`);
+  if (gpxSrc) opts.push(`<option value="gpx">Eigene Strecke: ${escapeHtml(gpxSrc.name)}</option>`);
+  sel.innerHTML = opts.join('');
+  if (worldSettings.routeId === 'gpx' && !gpxSrc) worldSettings.routeId = 'alpenpass';
+  sel.value = worldSettings.routeId;
+  $('#world-on').checked = worldSettings.on;
+  $('#world-quality').value = worldSettings.quality;
+  $('#world-rider').value = worldSettings.riderKg;
+  $('#world-bike').value = worldSettings.bikeKg;
+  const route = currentRoute();
+  const def = BUILTIN_ROUTES.find((r) => r.id === route.id);
+  const km = (route.length / 1000).toFixed(1).replace('.', ',');
+  const kind = route.id === 'gpx' ? (route.loop ? 'Runde' : 'hin und zurück') : 'Runde';
+  $('#world-route-info').textContent = `${def ? `${def.info} ` : ''}${km} km ${kind}, ${route.climb} Höhenmeter.`;
+}
+
+$('#world-on').addEventListener('change', (e) => {
+  worldSettings.on = e.target.checked;
+  saveWorldSettings();
+});
+$('#world-route').addEventListener('change', (e) => {
+  worldSettings.routeId = e.target.value;
+  saveWorldSettings();
+  renderWorldPanel();
+});
+$('#world-quality').addEventListener('change', (e) => {
+  worldSettings.quality = e.target.value;
+  saveWorldSettings();
+});
+for (const [id, key] of [['#world-rider', 'riderKg'], ['#world-bike', 'bikeKg']]) {
+  $(id).addEventListener('change', (e) => {
+    const v = Number(String(e.target.value).replace(',', '.'));
+    const [lo, hi] = key === 'riderKg' ? [30, 200] : [3, 30];
+    if (Number.isFinite(v) && v >= lo && v <= hi) {
+      worldSettings[key] = Math.round(v * 2) / 2;
+      saveWorldSettings();
+      setWorldStatus('');
+    } else {
+      setWorldStatus(`${key === 'riderKg' ? 'Dein Gewicht' : 'Das Radgewicht'} bitte zwischen ${lo} und ${hi} kg eingeben.`);
+    }
+    renderWorldPanel();
+  });
+}
+$('#world-gpx').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const src = gpxSource(await file.text(), file.name.replace(/\.gpx$/i, ''));
+    gpxSrc = src;
+    worldSettings.routeId = 'gpx';
+    let note = '';
+    try {
+      localStorage.setItem(WORLD_GPX_KEY, JSON.stringify(src));
+    } catch {
+      note = ' Der Browser kann sie sich nicht merken, nach dem Neuladen bitte erneut öffnen.';
+    }
+    saveWorldSettings();
+    renderWorldPanel();
+    setWorldStatus(`Strecke „${src.name}“ geladen.${src.hasEle ? '' : ' Die Datei hat keine Höhenangaben, die Strecke ist daher flach.'}${note}`);
+    log('Fahrwelt', `Eigene Strecke geladen: ${src.x.length} Punkte`);
+  } catch (err) {
+    setWorldStatus(`Diese Datei passt nicht: ${err.message}`);
+  }
+});
+
+function renderWorldButton() {
+  const b = $('#r-world');
+  b.textContent = world.visible ? 'Welt aus' : 'Welt an';
+  b.setAttribute('aria-pressed', String(world.visible));
+}
+
+function showWorld(on) {
+  if (on) world.show();
+  else world.hide();
+  $('#world').hidden = !world.visible;
+  $('#w-elev-box').hidden = !world.visible;
+  $('#ride-screen').classList.toggle('world-on', world.visible);
+  renderWorldButton();
+}
+
+// Die Strecke läuft in jeder Fahrt mit (die Rechnung ist winzig), gezeigt wird sie nur mit „Welt an“.
+// So setzt An- und Ausschalten die Position nicht zurück.
+function startWorld() {
+  try {
+    world.start(currentRoute(), { massKg: worldMassKg(), quality: worldSettings.quality });
+    // Die Aufzeichnung nimmt die virtuelle Geschwindigkeit nur, wenn die Welt beim Start an war.
+    ride.virtualSpeed = worldSettings.on;
+    showWorld(worldSettings.on);
+  } catch (err) {
+    // Ohne Welt weiterfahren, nie die Fahrt blockieren.
+    log('Fahrwelt', `Start fehlgeschlagen: ${err.message}`);
+    stopWorld();
+  }
+}
+
+function stopWorld() {
+  world.stop();
+  showWorld(false);
+}
+
+function toggleWorld() {
+  if (!ride || !world.active) return;
+  worldSettings.on = !world.visible;
+  saveWorldSettings();
+  $('#world-on').checked = worldSettings.on;
+  showWorld(worldSettings.on);
+}
+$('#r-world').addEventListener('click', toggleWorld);
+
+renderWorldPanel();
+
 // ---------- Tonsignale ----------
 
 const SOUND_KEY = 'trainerApp.sound';
@@ -429,6 +611,7 @@ function openRide(workout) {
   $('#r-skip').hidden = !workout;
   $('#r-sound').hidden = !workout;
   buildProfile();
+  startWorld();
   renderRide();
   window.scrollTo(0, 0);
 }
@@ -438,6 +621,7 @@ async function closeRide() {
   // wieder ein, während der Trainer den Stopp noch bestätigt.
   const r = ride;
   ride = null;
+  stopWorld();
   sound.silence();
   if (r && r.player && r.player.state !== 'fertig') r.player.stop(Date.now());
   // Zuerst speichern: Das Ausschalten von ERG kann ein paar Sekunden auf den Trainer warten.
@@ -658,12 +842,25 @@ function currentValues(now) {
     p: p === null ? null : Math.round(p),
     hr: hr === null ? null : Math.round(hr),
     cad: cad === null ? null : Math.round(cad),
-    spd: v('speed'),
+    // Mit Fahrwelt die virtuelle Geschwindigkeit: Sie kennt Gewicht und Steigung, die des Trainers nicht.
+    // Festgelegt beim Start, damit die Distanz nicht aus zwei Quellen gemischt wird.
+    spd: ride && ride.virtualSpeed && world.active ? Math.round(world.speedKmh * 10) / 10 : v('speed'),
     tgt: currentTargetW(now),
   };
 }
 
 function recordTick() {
+  if (ride && world.active) {
+    // Ein Fehler in der Welt darf Aufzeichnung, Töne und Anzeige nie aufhalten.
+    try {
+      const m = latest.power;
+      const p = m.value !== null && Date.now() - m.at <= STALE_MS ? m.value : 0;
+      world.tick(Date.now(), p, rideRunning() && !ride.finished);
+    } catch (err) {
+      if (!ride.worldError) log('Fahrwelt', `Fehler: ${err.message}`);
+      ride.worldError = true;
+    }
+  }
   if (!ride || !ride.rec || ride.finished) return;
   const now = Date.now();
   ride.rec.tick(now, currentValues(now), rideRunning());
@@ -1177,6 +1374,8 @@ document.addEventListener('keydown', (e) => {
     ArrowDown: () => adjust(-10),
     PageDown: scaleDown,
     Escape: endRide,
+    w: toggleWorld,
+    W: toggleWorld,
   };
   const action = actions[e.key];
   if (!action) return;
