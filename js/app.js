@@ -5,7 +5,7 @@ import { parseZwo, totalDuration, formatTime, cadenceTarget, formatCadence, segm
 import { Sound, soundCue, SOUND_LABELS } from './sound.js';
 import { WorkoutPlayer } from './player.js';
 import { powerZone } from './zones.js';
-import { normalizeEntry, planDate, sortByPlan, defaultBriefing } from './plan.js';
+import { normalizeEntry, planDate, sortByPlan, defaultBriefing, parseIsoDate } from './plan.js';
 import { Recording } from './recorder.js';
 import { encodeFit, fitFileName } from './fit.js';
 import { saveRide, getRide, deleteRide, listRides } from './storage.js';
@@ -198,6 +198,13 @@ $('#ftp-form').addEventListener('submit', (e) => {
 // ---------- Workout-Liste ----------
 
 let workouts = [];
+let repoWorkouts = [];
+let repoLoaded = false;
+let ownWorkouts = []; // selbst geöffnete .zwo-Dateien
+let plannedWorkouts = [];
+let plannedBad = [];
+let plannedPlanError = false;
+let plannedState = 'laden'; // laden | none | granted | prompt | denied | error
 
 async function loadWorkouts() {
   try {
@@ -212,12 +219,126 @@ async function loadWorkouts() {
         return null;
       }
     }));
-    workouts = sortByPlan(loaded.filter(Boolean));
+    repoWorkouts = loaded.filter(Boolean);
   } catch (err) {
     log('Workouts', `Liste konnte nicht geladen werden: ${err.message}`);
   }
-  renderWorkoutList();
+  repoLoaded = true;
+  combineWorkouts();
 }
+
+// Geplante Workouts aus dem Ordner „Geplant“ (dort legt der Planungs-Chat sie ab).
+// Jeder Aufruf liest neu; nur das Ergebnis des letzten Aufrufs für den aktuellen Ordner zählt.
+let plannedGen = 0;
+const baseName = (v) => String(v).trim().split(/[\\/]/).pop().toLowerCase();
+
+async function loadPlanned(ask = false) {
+  const gen = ++plannedGen;
+  const token = folder.folderToken();
+  let state;
+  let list = [];
+  let bad = [];
+  let planError = false;
+  try {
+    const res = await folder.readPlanned({ ask });
+    state = res.permission;
+    bad = res.bad.map((b) => b.name);
+    for (const b of res.bad) log('Workouts', `${b.name} im Ordner „Geplant“ konnte nicht gelesen werden: ${b.error.message}`);
+    if (res.planError) {
+      planError = true;
+      log('Workouts', `plan.json im Ordner ist fehlerhaft: ${res.planError.message}`);
+    }
+    const entries = new Map();
+    for (const e of (res.plan || []).map(normalizeEntry).filter(Boolean)) entries.set(baseName(e.datei), e);
+    const used = new Set();
+    for (const f of res.files) {
+      try {
+        const key = baseName(f.name);
+        const entry = entries.get(key);
+        if (entry) used.add(key);
+        list.push({ ...parseZwo(f.text), datum: entry ? entry.datum : null, briefing: entry ? entry.briefing : null, planned: true });
+      } catch (err) {
+        bad.push(f.name);
+        log('Workouts', `${f.name} im Ordner „Geplant“ konnte nicht gelesen werden: ${err.message}`);
+      }
+    }
+    for (const key of entries.keys()) if (!used.has(key)) log('Workouts', `plan.json nennt ${key}, die Datei fehlt im Ordner „Geplant“`);
+  } catch (err) {
+    state = 'error';
+    list = [];
+    log('Workouts', `Ordner „Geplant“ konnte nicht gelesen werden: ${err.message}`);
+  }
+  // Inzwischen neu gestartet, Ordner gewechselt oder abgeschaltet: dieses Ergebnis verwerfen.
+  if (gen !== plannedGen || token !== folder.folderToken()) return;
+  plannedState = state;
+  plannedWorkouts = list;
+  plannedBad = bad;
+  plannedPlanError = planError;
+  combineWorkouts();
+}
+
+function resetPlanned() {
+  plannedGen++;
+  plannedWorkouts = [];
+  plannedBad = [];
+  plannedPlanError = false;
+  plannedState = 'none';
+  combineWorkouts();
+}
+
+// Geplante Workouts, die mehr als eine Woche zurückliegen, ausblenden (die Dateien bleiben im Ordner).
+function visiblePlanned() {
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+  return plannedWorkouts.filter((w) => {
+    const d = parseIsoDate(w.datum);
+    return !d || d >= cutoff;
+  });
+}
+
+function combineWorkouts() {
+  // Geplante zuerst, damit sie bei gleichem Datum vor den Beispiel-Workouts stehen.
+  workouts = [...ownWorkouts, ...sortByPlan([...visiblePlanned(), ...repoWorkouts])];
+  // Erst anzeigen, wenn die Beispiel-Workouts da sind, sonst blitzt „Keine Workouts gefunden“ auf.
+  if (repoLoaded) renderWorkoutList();
+  renderPlannedStatus();
+}
+
+function renderPlannedStatus() {
+  const box = $('#planned-status');
+  const btn = $('#planned-allow');
+  const name = folder.folderName();
+  btn.hidden = true;
+  if (!folder.supported()) {
+    box.textContent = 'Geplante Workouts aus dem Ordner gehen nur in Chrome oder Edge.';
+  } else if (plannedState === 'laden') {
+    box.textContent = '';
+  } else if (!name) {
+    box.textContent = 'Geplante Workouts aus deinem Planungs-Chat erscheinen hier automatisch, sobald unten ein „Ordner für Claude“ gewählt ist.';
+  } else if (plannedState === 'granted') {
+    const n = visiblePlanned().length;
+    let text = n
+      ? `${n === 1 ? 'Ein geplantes Workout' : `${n} geplante Workouts`} aus dem Ordner „${name}\\${folder.PLAN_DIR}“.`
+      : `Noch keine geplanten Workouts im Ordner „${name}\\${folder.PLAN_DIR}“.`;
+    if (plannedBad.length) text += ` Nicht lesbar: ${plannedBad.join(', ')}.`;
+    if (plannedPlanError) text += ' Die Datei plan.json ist fehlerhaft, darum fehlen Datum und Briefing.';
+    box.textContent = text;
+  } else if (plannedState === 'denied') {
+    box.textContent = 'Chrome hat den Zugriff auf den Ordner gesperrt. Bitte unten den Ordner neu wählen.';
+  } else if (plannedState === 'error') {
+    box.textContent = 'Der Ordner mit den geplanten Workouts konnte nicht gelesen werden. Ist er noch da?';
+  } else {
+    box.textContent = 'Chrome braucht deine Erlaubnis, um die geplanten Workouts aus dem Ordner zu lesen.';
+    btn.hidden = false;
+  }
+}
+
+$('#planned-allow').addEventListener('click', () => loadPlanned(true).then(() => syncFolder()));
+
+// Kommst du zur App zurück (z. B. nachdem der Planungs-Chat neue Workouts abgelegt hat), neu einlesen.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !ride && folder.folderName()) loadPlanned();
+});
 
 function zoneColor(pct) {
   return powerZone(pct * ftp, ftp).color;
@@ -338,8 +459,8 @@ $('#zwo-file').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const w = parseZwo(await file.text());
-    workouts.unshift(w);
-    renderWorkoutList();
+    ownWorkouts.unshift(w);
+    combineWorkouts();
     log('Workouts', `Datei geladen: ${file.name}`);
   } catch (err) {
     alert(`Die Datei konnte nicht gelesen werden: ${err.message}`);
@@ -603,7 +724,7 @@ function openRide(workout) {
   };
   if (!workout) erg.setTarget(Math.round(ftp * 0.55));
   // Ordner-Freigabe jetzt im Klick holen, beim automatischen Speichern am Ende geht das nicht mehr.
-  folder.permission(true).then(() => renderFolder()).catch(() => {});
+  folder.permission(true).then(() => Promise.all([renderFolder(), loadPlanned()])).catch(() => {});
   $('#setup-screen').hidden = true;
   $('#ride-screen').hidden = false;
   $('#r-name').textContent = workout ? workout.name : 'Freie Fahrt';
@@ -634,6 +755,7 @@ async function closeRide() {
   $('#r-preview').hidden = true;
   previewKey = null;
   updateWakeLock();
+  if (folder.folderName()) loadPlanned(); // während der Fahrt abgelegte Workouts zeigen
 }
 
 function buildProfile() {
@@ -1118,6 +1240,7 @@ async function chooseFolder() {
   }
   log('Ordner', `Gewählt: ${folder.folderName()}`);
   syncFolder(true);
+  loadPlanned();
 }
 
 $('#folder-choose').addEventListener('click', chooseFolder);
@@ -1126,17 +1249,19 @@ $('#folder-sync').addEventListener('click', async () => {
   // Erlaubnis sofort im Klick holen, bevor irgendetwas anderes wartet.
   await folder.permission(true).catch(() => {});
   syncFolder(true);
+  loadPlanned();
 });
 $('#folder-forget').addEventListener('click', async () => {
   if (!confirm('Fahrten nicht mehr in den Ordner speichern? Die Dateien, die schon dort liegen, bleiben.')) return;
   await folder.forget().catch(() => {});
   await renderFolder('Es wird nicht mehr in einen Ordner gespeichert.');
+  resetPlanned();
 });
 
 folder.load()
   .catch(() => null)
   .then(() => renderFolder())
-  .then(() => syncFolder());
+  .then(() => Promise.all([syncFolder(), loadPlanned()]));
 
 // ---------- Strava ----------
 

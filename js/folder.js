@@ -139,3 +139,51 @@ export async function missingCount(ids) {
   const done = await writtenIds(current);
   return ids.filter((id) => !done.has(id)).length;
 }
+
+// ---------- Geplante Workouts aus dem Unterordner „Geplant“ ----------
+
+export const PLAN_DIR = 'Geplant';
+
+// Liest alle .zwo-Dateien und die optionale plan.json (gleiches Format wie workouts/index.json).
+// Fragt nicht nach der Erlaubnis; ohne Freigabe kommt { permission } ohne Dateien zurück.
+export async function readPlanned({ ask = false } = {}) {
+  const f = current;
+  if (!f) return { permission: 'none', files: [], plan: null, bad: [], token: null };
+  const p = await permission(ask);
+  if (p !== 'granted') return { permission: p, files: [], plan: null, bad: [], token: f.token };
+  const dir = await f.handle.getDirectoryHandle(PLAN_DIR, { create: true });
+  const files = [];
+  const bad = [];
+  let plan = null;
+  let planError = null;
+  for await (const [name, h] of dir.entries()) {
+    if (h.kind !== 'file') continue;
+    const lower = name.toLowerCase();
+    if (!lower.endsWith('.zwo') && lower !== 'plan.json') continue;
+    let text;
+    try {
+      // Eine Datei kann gerade geschrieben werden oder nur in OneDrive liegen; dann nur diese auslassen.
+      text = await (await h.getFile()).text();
+    } catch (err) {
+      bad.push({ name, error: err });
+      continue;
+    }
+    if (lower === 'plan.json') {
+      try {
+        plan = JSON.parse(text);
+        if (!Array.isArray(plan)) throw new Error('plan.json muss eine Liste sein');
+      } catch (err) {
+        plan = null;
+        planError = err;
+      }
+    } else {
+      files.push({ name, text });
+    }
+  }
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  return { permission: 'granted', files, plan, planError, bad, token: f.token };
+}
+
+export function folderToken() {
+  return current ? current.token : null;
+}
